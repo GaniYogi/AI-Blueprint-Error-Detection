@@ -6,13 +6,11 @@ import { Dashboard } from './pages/Dashboard';
 import { UploadPage } from './pages/UploadPage';
 import { AnalysisResultsPage } from './pages/AnalysisResultsPage';
 import { ReportsPage } from './pages/ReportsPage';
-import { SettingsPage } from './pages/SettingsPage';
 import { 
   Layers, 
   Layout, 
   UploadCloud, 
   FileText, 
-  Settings as SettingsIcon, 
   Sun, 
   Moon, 
   Menu, 
@@ -78,7 +76,6 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { name: 'Dashboard', href: '/dashboard', icon: Layout },
     { name: 'Upload Blueprints', href: '/upload', icon: UploadCloud },
     { name: 'Compliance Reports', href: '/reports', icon: FileText },
-    { name: 'System Settings', href: '/settings', icon: SettingsIcon },
   ];
 
   // No logout handler needed
@@ -205,7 +202,6 @@ const AppRoutes: React.FC = () => {
       <Route path="/upload" element={<ProtectedRoute><MainLayout><UploadPage /></MainLayout></ProtectedRoute>} />
       <Route path="/results/:id" element={<ProtectedRoute><MainLayout><AnalysisResultsPage /></MainLayout></ProtectedRoute>} />
       <Route path="/reports" element={<ProtectedRoute><MainLayout><ReportsPage /></MainLayout></ProtectedRoute>} />
-      <Route path="/settings" element={<ProtectedRoute><MainLayout><SettingsPage /></MainLayout></ProtectedRoute>} />
       
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

@@ -1,5 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
-import { authService } from '../services/api';
+import React, { createContext, useContext } from 'react';
 
 interface AuthContextType {
   user: any;
@@ -11,51 +10,29 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
+// Static default user — no login required
+const DEFAULT_USER = {
+  id: 1,
+  email: 'architect@blueprint.ai',
+  full_name: 'Architect User',
+  is_active: true,
+};
+
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState<boolean>(true);
-
-  const refreshUser = async () => {
-    try {
-      const data = await authService.getMe();
-      setUser(data);
-    } catch (err) {
-      console.error('Failed to get current user:', err);
-      setUser({
-        id: 1,
-        email: 'architect@blueprint.ai',
-        full_name: 'Architect User',
-        is_active: true
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    refreshUser();
-  }, []);
-
-  const login = async (_email: string, _password: string) => {
-    // Bypassed
-  };
-
-  const register = async (_email: string, _password: string, _fullName: string) => {
-    // Bypassed
-  };
-
-  const logout = () => {
-    // Bypassed
-  };
+  // Always authenticated, never loading
+  const login = async () => {};
+  const register = async () => {};
+  const logout = () => {};
+  const refreshUser = async () => {};
 
   return (
     <AuthContext.Provider
       value={{
-        user,
-        loading,
-        isAuthenticated: !!user,
+        user: DEFAULT_USER,
+        loading: false,
+        isAuthenticated: true,
         login,
         register,
         logout,

@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { blueprintService } from '../services/api';
-import { FileText, Download, ShieldCheck, Clock, AlertTriangle, ArrowRight } from 'lucide-react';
+import { FileText, Download, ShieldCheck, Clock, AlertTriangle, ArrowRight, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 export const ReportsPage: React.FC = () => {
   const [blueprints, setBlueprints] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const fetchReports = async () => {
     try {
@@ -15,6 +17,19 @@ export const ReportsPage: React.FC = () => {
       console.error('Failed to load reports list:', err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    setDeletingId(id);
+    try {
+      await blueprintService.delete(id);
+      setConfirmDeleteId(null);
+      await fetchReports();
+    } catch (err) {
+      console.error('Delete failed:', err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -79,6 +94,7 @@ export const ReportsPage: React.FC = () => {
                   <th className="pb-3">Compliance Score</th>
                   <th className="pb-3">Audit Date</th>
                   <th className="pb-3 text-right">Actions</th>
+                  <th className="pb-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-primary-100 dark:divide-primary-800/60 text-sm">
@@ -128,6 +144,33 @@ export const ReportsPage: React.FC = () => {
                           <Download className="h-3.5 w-3.5" />
                           <span>PDF Report</span>
                         </a>
+                      </td>
+                      <td className="py-4 pl-2">
+                        {confirmDeleteId === bp.id ? (
+                          <div className="flex items-center space-x-1.5">
+                            <button
+                              onClick={() => handleDelete(bp.id)}
+                              disabled={deletingId === bp.id}
+                              className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-60"
+                            >
+                              {deletingId === bp.id ? '...' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-2.5 py-1.5 bg-primary-100 dark:bg-primary-800 hover:bg-primary-200 dark:hover:bg-primary-700 text-primary-600 dark:text-primary-300 text-xs font-bold rounded-lg transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(bp.id)}
+                            className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg transition-colors"
+                            title="Delete blueprint"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );

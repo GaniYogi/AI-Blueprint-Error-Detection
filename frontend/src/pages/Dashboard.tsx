@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { analyticsService } from '../services/api';
+import { analyticsService, blueprintService } from '../services/api';
 import { 
   FileText, 
   AlertTriangle, 
@@ -10,7 +10,8 @@ import {
   Clock, 
   ArrowRight,
   ShieldCheck,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -29,6 +30,8 @@ export const Dashboard: React.FC = () => {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   const fetchDashboardData = async () => {
     try {
@@ -39,6 +42,19 @@ export const Dashboard: React.FC = () => {
       setError('Failed to load dashboard metrics.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    setDeletingId(id);
+    try {
+      await blueprintService.delete(id);
+      setConfirmDeleteId(null);
+      await fetchDashboardData();
+    } catch (err) {
+      console.error('Delete failed:', err);
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -239,6 +255,7 @@ export const Dashboard: React.FC = () => {
                 <th className="pb-3">Status</th>
                 <th className="pb-3">Compliance Score</th>
                 <th className="pb-3 text-right">Actions</th>
+                <th className="pb-3"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-primary-100 dark:divide-primary-800/60 text-sm">
@@ -283,6 +300,33 @@ export const Dashboard: React.FC = () => {
                           </Link>
                         ) : (
                           <span className="text-xs text-primary-400">Processing...</span>
+                        )}
+                      </td>
+                      <td className="py-4 pl-2">
+                        {confirmDeleteId === bp.id ? (
+                          <div className="flex items-center space-x-1.5">
+                            <button
+                              onClick={() => handleDelete(bp.id)}
+                              disabled={deletingId === bp.id}
+                              className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition-colors disabled:opacity-60"
+                            >
+                              {deletingId === bp.id ? '...' : 'Confirm'}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="px-2.5 py-1.5 bg-primary-100 dark:bg-primary-800 hover:bg-primary-200 dark:hover:bg-primary-700 text-primary-600 dark:text-primary-300 text-xs font-bold rounded-lg transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDeleteId(bp.id)}
+                            className="p-1.5 text-rose-400 hover:text-rose-600 hover:bg-rose-500/10 rounded-lg transition-colors"
+                            title="Delete blueprint"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
                         )}
                       </td>
                     </tr>

@@ -1,14 +1,14 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { blueprintService } from '../services/api';
-import { 
-  ShieldCheck, 
-  ZoomIn, 
-  ZoomOut, 
-  Maximize2, 
-  Download, 
-  RefreshCw, 
-  Eye, 
+import {
+  ShieldCheck,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
+  Download,
+  RefreshCw,
+  Eye,
   EyeOff,
   HelpCircle,
   CheckCircle2,
@@ -19,7 +19,7 @@ import {
 export const AnalysisResultsPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const blueprintId = parseInt(id || '0');
-  
+
   const [blueprint, setBlueprint] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export const AnalysisResultsPage: React.FC = () => {
   const [showErrors, setShowErrors] = useState(true);
   const [showOCR, setShowOCR] = useState(false);
   const [hoveredItemId, setHoveredItemId] = useState<string | null>(null);
-  
+
   // Zoom & Pan states
   const [zoom, setZoom] = useState(1);
   const [panX, setPanX] = useState(0);
@@ -46,7 +46,8 @@ export const AnalysisResultsPage: React.FC = () => {
         // Continue polling
         setTimeout(() => fetchBlueprint(true), 3000);
       } else {
-        if (!isPoll) setLoading(false);
+        // Stop loading even when the completed result came from polling.
+        setLoading(false);
       }
     } catch (err) {
       console.error(err);
@@ -154,13 +155,33 @@ export const AnalysisResultsPage: React.FC = () => {
     return <div className="text-center py-12">No analysis outputs available. Try re-running.</div>;
   }
 
-  const { image_metadata, detected_objects, ocr_results, errors: engineErrors, compliance_checks, compliance_score, total_violations, risk_assessment } = results;
-  const imgW = image_metadata.width;
-  const imgH = image_metadata.height;
+  const {
+    image_metadata = { width: 1, height: 1 },
+    detected_objects = [],
+    ocr_results = [],
+    errors: engineErrors = [],
+    compliance_checks = [],
+    compliance_score = 0,
+    total_violations = 0,
+    risk_assessment = 'Review',
+  } = results;
 
-  // Render SVG layers styled properly
-  const getBBoxPercentage = (bbox: number[]) => {
-    const [x, y, w, h] = bbox;
+  const imgW = Number(image_metadata?.width) || 1;
+  const imgH = Number(image_metadata?.height) || 1;
+
+  // Convert backend [x, y, width, height] boxes to CSS percentages.
+  // Some errors can have bbox: null, so handle invalid boxes safely.
+  const getBBoxPercentage = (bbox: any): React.CSSProperties | null => {
+    if (!Array.isArray(bbox) || bbox.length < 4) {
+      return null;
+    }
+
+    const [x, y, w, h] = bbox.map(Number);
+
+    if (![x, y, w, h].every(Number.isFinite)) {
+      return null;
+    }
+
     return {
       left: `${(x / imgW) * 100}%`,
       top: `${(y / imgH) * 100}%`,
@@ -186,14 +207,14 @@ export const AnalysisResultsPage: React.FC = () => {
           <h2 className="text-2xl sm:text-3xl font-extrabold tracking-tight mt-1">{blueprint.original_name}</h2>
         </div>
         <div className="flex items-center space-x-3">
-          <button 
+          <button
             onClick={handleReanalyze}
             className="inline-flex items-center space-x-1.5 px-4 py-2 border border-primary-200 dark:border-primary-800 hover:bg-primary-100 dark:hover:bg-primary-900/40 text-primary-700 dark:text-primary-300 rounded-xl text-sm font-semibold transition-colors"
           >
             <RefreshCw className="h-4 w-4" />
             <span>Re-run Audit</span>
           </button>
-          <a 
+          <a
             href={blueprintService.getReportUrl(blueprint.id)}
             target="_blank"
             rel="noopener noreferrer"
@@ -207,7 +228,7 @@ export const AnalysisResultsPage: React.FC = () => {
 
       {/* Main Double-Pane Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-        
+
         {/* Left Pane: Visualizer Canvas (8 cols) */}
         <div className="lg:col-span-8 space-y-4">
           <div className="glass-panel rounded-2xl border border-primary-200/50 dark:border-primary-800/30 overflow-hidden shadow-md flex flex-col">
@@ -215,31 +236,28 @@ export const AnalysisResultsPage: React.FC = () => {
             <div className="px-4 py-3 bg-primary-100/50 dark:bg-primary-900/40 border-b border-primary-200 dark:border-primary-800/60 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 {/* Overlay toggles */}
-                <button 
-                  onClick={() => setShowObjects(!showObjects)} 
-                  className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    showObjects ? 'bg-indigo-600 text-white' : 'bg-primary-200 dark:bg-primary-800 text-primary-600 dark:text-primary-400'
-                  }`}
+                <button
+                  onClick={() => setShowObjects(!showObjects)}
+                  className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${showObjects ? 'bg-indigo-600 text-white' : 'bg-primary-200 dark:bg-primary-800 text-primary-600 dark:text-primary-400'
+                    }`}
                 >
                   {showObjects ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                   <span>Detected Elements</span>
                 </button>
 
-                <button 
-                  onClick={() => setShowErrors(!showErrors)} 
-                  className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    showErrors ? 'bg-rose-600 text-white' : 'bg-primary-200 dark:bg-primary-800 text-primary-600 dark:text-primary-400'
-                  }`}
+                <button
+                  onClick={() => setShowErrors(!showErrors)}
+                  className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${showErrors ? 'bg-rose-600 text-white' : 'bg-primary-200 dark:bg-primary-800 text-primary-600 dark:text-primary-400'
+                    }`}
                 >
                   {showErrors ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                   <span>Errors</span>
                 </button>
 
-                <button 
-                  onClick={() => setShowOCR(!showOCR)} 
-                  className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                    showOCR ? 'bg-emerald-600 text-white' : 'bg-primary-200 dark:bg-primary-800 text-primary-600 dark:text-primary-400'
-                  }`}
+                <button
+                  onClick={() => setShowOCR(!showOCR)}
+                  className={`inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${showOCR ? 'bg-emerald-600 text-white' : 'bg-primary-200 dark:bg-primary-800 text-primary-600 dark:text-primary-400'
+                    }`}
                 >
                   {showOCR ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
                   <span>Extracted OCR</span>
@@ -263,17 +281,16 @@ export const AnalysisResultsPage: React.FC = () => {
             </div>
 
             {/* Canvas Interactive viewport */}
-            <div 
+            <div
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
-              className={`relative flex-1 bg-slate-900 overflow-hidden aspect-[4/3] select-none ${
-                isPanning ? 'cursor-grabbing' : 'cursor-grab'
-              }`}
+              className={`relative flex-1 bg-slate-900 overflow-hidden aspect-[4/3] select-none ${isPanning ? 'cursor-grabbing' : 'cursor-grab'
+                }`}
             >
               {/* Scale & translation wrapper */}
-              <div 
+              <div
                 style={{
                   transform: `scale(${zoom}) translate(${panX / zoom}px, ${panY / zoom}px)`,
                   transformOrigin: 'center center',
@@ -283,30 +300,33 @@ export const AnalysisResultsPage: React.FC = () => {
               >
                 {/* Blueprint Image */}
                 <div className="relative max-w-full max-h-full pointer-events-auto">
-                  <img 
-                    src={imageUrl} 
+                  <img
+                    src={imageUrl}
                     alt="Blueprint Analysis View"
                     className="max-w-full max-h-full block object-contain"
                   />
 
                   {/* Overlays SVG overlay/absolute HTML cards */}
-                  
+
                   {/* 1. Object Detections */}
                   {showObjects && detected_objects.map((obj: any) => {
                     const rectStyle = getBBoxPercentage(obj.bbox);
                     const isHovered = hoveredItemId === obj.id;
                     const isRoom = obj.label === 'room';
-                    
+
+                    if (!rectStyle) {
+                      return null;
+                    }
+
                     if (isRoom) {
                       return (
                         <div
                           key={obj.id}
                           style={rectStyle}
-                          className={`absolute border-[1.5px] rounded border-dashed transition-colors flex items-center justify-center p-2 text-center ${
-                            isHovered 
-                              ? 'border-indigo-400 bg-indigo-500/25 z-20' 
+                          className={`absolute border-[1.5px] rounded border-dashed transition-colors flex items-center justify-center p-2 text-center ${isHovered
+                              ? 'border-indigo-400 bg-indigo-500/25 z-20'
                               : 'border-indigo-500/50 bg-indigo-500/5 hover:border-indigo-400 z-10'
-                          }`}
+                            }`}
                           onMouseEnter={() => setHoveredItemId(obj.id)}
                           onMouseLeave={() => setHoveredItemId(null)}
                         >
@@ -318,10 +338,10 @@ export const AnalysisResultsPage: React.FC = () => {
                     }
 
                     // For doors, windows, columns
-                    const colorClasses = 
+                    const colorClasses =
                       obj.label === 'door' ? 'border-sky-500 bg-sky-500/10' :
-                      obj.label === 'window' ? 'border-teal-500 bg-teal-500/10' :
-                      'border-indigo-300 bg-indigo-300/10';
+                        obj.label === 'window' ? 'border-teal-500 bg-teal-500/10' :
+                          'border-indigo-300 bg-indigo-300/10';
 
                     return (
                       <div
@@ -330,7 +350,7 @@ export const AnalysisResultsPage: React.FC = () => {
                         className={`absolute border transition-colors ${colorClasses} ${isHovered ? 'ring-2 ring-white scale-102 z-20' : 'z-10'}`}
                         onMouseEnter={() => setHoveredItemId(obj.id)}
                         onMouseLeave={() => setHoveredItemId(null)}
-                        title={`${obj.label.toUpperCase()} (${Math.round(obj.confidence*100)}%)`}
+                        title={`${obj.label.toUpperCase()} (${Math.round(obj.confidence * 100)}%)`}
                       />
                     );
                   })}
@@ -339,11 +359,15 @@ export const AnalysisResultsPage: React.FC = () => {
                   {showErrors && engineErrors.map((err: any) => {
                     const rectStyle = getBBoxPercentage(err.bbox);
                     const isHovered = hoveredItemId === err.id;
-                    const colorClass = 
+
+                    if (!rectStyle) {
+                      return null;
+                    }
+                    const colorClass =
                       err.severity === 'Critical' ? 'border-rose-600 bg-rose-600/20' :
-                      err.severity === 'High' ? 'border-rose-500 bg-rose-500/15' :
-                      err.severity === 'Medium' ? 'border-amber-500 bg-amber-500/15' :
-                      'border-blue-500 bg-blue-500/15';
+                        err.severity === 'High' ? 'border-rose-500 bg-rose-500/15' :
+                          err.severity === 'Medium' ? 'border-amber-500 bg-amber-500/15' :
+                            'border-blue-500 bg-blue-500/15';
 
                     const pulseClass = (err.severity === 'Critical' || err.severity === 'High') ? 'animate-pulse' : '';
 
@@ -351,15 +375,13 @@ export const AnalysisResultsPage: React.FC = () => {
                       <div
                         key={err.id}
                         style={rectStyle}
-                        className={`absolute border-2 rounded ${colorClass} ${pulseClass} transition-all ${
-                          isHovered ? 'ring-2 ring-white scale-105 z-30' : 'z-20'
-                        }`}
+                        className={`absolute border-2 rounded ${colorClass} ${pulseClass} transition-all ${isHovered ? 'ring-2 ring-white scale-105 z-30' : 'z-20'
+                          }`}
                         onMouseEnter={() => setHoveredItemId(err.id)}
                         onMouseLeave={() => setHoveredItemId(null)}
                       >
-                        <div className={`absolute -top-6 left-0 px-2 py-0.5 rounded text-[8px] sm:text-[10px] font-bold text-white shadow-md leading-none ${
-                          err.severity === 'Critical' || err.severity === 'High' ? 'bg-rose-600' : 'bg-amber-500'
-                        }`}>
+                        <div className={`absolute -top-6 left-0 px-2 py-0.5 rounded text-[8px] sm:text-[10px] font-bold text-white shadow-md leading-none ${err.severity === 'Critical' || err.severity === 'High' ? 'bg-rose-600' : 'bg-amber-500'
+                          }`}>
                           {err.type.replace('_', ' ').toUpperCase()}
                         </div>
                       </div>
@@ -369,6 +391,11 @@ export const AnalysisResultsPage: React.FC = () => {
                   {/* 3. OCR Text */}
                   {showOCR && ocr_results.map((ocr: any) => {
                     const rectStyle = getBBoxPercentage(ocr.bbox);
+
+                    if (!rectStyle) {
+                      return null;
+                    }
+
                     return (
                       <div
                         key={ocr.id}
@@ -400,43 +427,39 @@ export const AnalysisResultsPage: React.FC = () => {
           <div className="glass-panel rounded-2xl border border-primary-200/50 dark:border-primary-800/30 overflow-hidden shadow-md">
             {/* Sidebar Tabs */}
             <div className="flex border-b border-primary-200 dark:border-primary-800/60 text-xs font-bold bg-primary-100/50 dark:bg-primary-900/40">
-              <button 
+              <button
                 onClick={() => setActiveTab('compliance')}
-                className={`flex-1 py-3 text-center border-b-2 transition-colors ${
-                  activeTab === 'compliance' 
-                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 font-bold' 
+                className={`flex-1 py-3 text-center border-b-2 transition-colors ${activeTab === 'compliance'
+                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 font-bold'
                     : 'border-transparent text-primary-500 hover:text-primary-700'
-                }`}
+                  }`}
               >
                 Compliance
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('errors')}
-                className={`flex-1 py-3 text-center border-b-2 transition-colors ${
-                  activeTab === 'errors' 
-                    ? 'border-rose-600 text-rose-600 dark:text-rose-400 font-bold' 
+                className={`flex-1 py-3 text-center border-b-2 transition-colors ${activeTab === 'errors'
+                    ? 'border-rose-600 text-rose-600 dark:text-rose-400 font-bold'
                     : 'border-transparent text-primary-500 hover:text-primary-700'
-                }`}
+                  }`}
               >
                 Errors ({engineErrors.length})
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('objects')}
-                className={`flex-1 py-3 text-center border-b-2 transition-colors ${
-                  activeTab === 'objects' 
-                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 font-bold' 
+                className={`flex-1 py-3 text-center border-b-2 transition-colors ${activeTab === 'objects'
+                    ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400 font-bold'
                     : 'border-transparent text-primary-500 hover:text-primary-700'
-                }`}
+                  }`}
               >
                 Elements
               </button>
-              <button 
+              <button
                 onClick={() => setActiveTab('ocr')}
-                className={`flex-1 py-3 text-center border-b-2 transition-colors ${
-                  activeTab === 'ocr' 
-                    ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400 font-bold' 
+                className={`flex-1 py-3 text-center border-b-2 transition-colors ${activeTab === 'ocr'
+                    ? 'border-emerald-600 text-emerald-600 dark:text-emerald-400 font-bold'
                     : 'border-transparent text-primary-500 hover:text-primary-700'
-                }`}
+                  }`}
               >
                 OCR
               </button>
@@ -444,7 +467,7 @@ export const AnalysisResultsPage: React.FC = () => {
 
             {/* Tab Body */}
             <div className="p-5 max-h-[500px] overflow-y-auto no-scrollbar">
-              
+
               {/* Tab 1: Compliance */}
               {activeTab === 'compliance' && (
                 <div className="space-y-6">
@@ -469,9 +492,8 @@ export const AnalysisResultsPage: React.FC = () => {
                         <div key={index} className="p-3 rounded-xl border border-primary-200/40 dark:border-primary-800/40 bg-white/40 dark:bg-primary-900/30 space-y-1">
                           <div className="flex items-center justify-between">
                             <span className="font-bold text-xs text-primary-900 dark:text-primary-100">{chk.name}</span>
-                            <span className={`inline-flex items-center space-x-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded ${
-                              isPass ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
-                            }`}>
+                            <span className={`inline-flex items-center space-x-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded ${isPass ? 'bg-emerald-500/10 text-emerald-500' : 'bg-rose-500/10 text-rose-500'
+                              }`}>
                               {isPass ? <CheckCircle2 className="h-3 w-3" /> : <XCircle className="h-3 w-3" />}
                               <span>{chk.status}</span>
                             </span>
@@ -500,20 +522,19 @@ export const AnalysisResultsPage: React.FC = () => {
                   {engineErrors.length > 0 ? (
                     engineErrors.map((err: any) => {
                       const isHovered = hoveredItemId === err.id;
-                      const sevColors = 
+                      const sevColors =
                         err.severity === 'Critical' ? 'bg-rose-500/10 text-rose-500 border-rose-500/20' :
-                        err.severity === 'High' ? 'bg-rose-500/10 text-rose-500 border-rose-500/20' :
-                        err.severity === 'Medium' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
-                        'bg-blue-500/10 text-blue-500 border-blue-500/20';
+                          err.severity === 'High' ? 'bg-rose-500/10 text-rose-500 border-rose-500/20' :
+                            err.severity === 'Medium' ? 'bg-amber-500/10 text-amber-500 border-amber-500/20' :
+                              'bg-blue-500/10 text-blue-500 border-blue-500/20';
 
                       return (
-                        <div 
+                        <div
                           key={err.id}
-                          className={`p-3.5 rounded-xl border transition-all text-xs space-y-2 cursor-pointer ${
-                            isHovered 
-                              ? 'border-rose-500 bg-rose-500/10 ring-1 ring-rose-500/30' 
+                          className={`p-3.5 rounded-xl border transition-all text-xs space-y-2 cursor-pointer ${isHovered
+                              ? 'border-rose-500 bg-rose-500/10 ring-1 ring-rose-500/30'
                               : 'border-primary-200/40 dark:border-primary-800/40 bg-white/40 dark:bg-primary-900/30'
-                          }`}
+                            }`}
                           onMouseEnter={() => setHoveredItemId(err.id)}
                           onMouseLeave={() => setHoveredItemId(null)}
                         >
@@ -540,7 +561,7 @@ export const AnalysisResultsPage: React.FC = () => {
               {activeTab === 'objects' && (
                 <div className="space-y-4">
                   <h5 className="text-xs font-bold text-primary-500 uppercase tracking-wider mb-2">Detected Blueprint Elements</h5>
-                  
+
                   {/* Summary grid counts */}
                   <div className="grid grid-cols-2 gap-3 mb-4">
                     {['room', 'wall', 'door', 'window', 'column', 'staircase'].map((lbl) => {
@@ -558,16 +579,15 @@ export const AnalysisResultsPage: React.FC = () => {
                   <div className="space-y-2">
                     <span className="text-[10px] font-bold text-primary-500 uppercase tracking-wider block">Habitable Spaces</span>
                     {detected_objects.filter((o: any) => o.label === 'room').map((room: any) => (
-                      <div 
+                      <div
                         key={room.id}
-                        className={`p-2.5 rounded-lg border border-primary-200/40 dark:border-primary-800/40 text-xs flex justify-between items-center cursor-pointer transition-colors ${
-                          hoveredItemId === room.id ? 'bg-indigo-500/10 border-indigo-500/30' : 'bg-white/40 dark:bg-primary-900/20'
-                        }`}
+                        className={`p-2.5 rounded-lg border border-primary-200/40 dark:border-primary-800/40 text-xs flex justify-between items-center cursor-pointer transition-colors ${hoveredItemId === room.id ? 'bg-indigo-500/10 border-indigo-500/30' : 'bg-white/40 dark:bg-primary-900/20'
+                          }`}
                         onMouseEnter={() => setHoveredItemId(room.id)}
                         onMouseLeave={() => setHoveredItemId(null)}
                       >
                         <span className="font-semibold">{room.name || 'Room Space'}</span>
-                        <span className="font-mono text-primary-400 text-[10px]">Conf: {Math.round(room.confidence*100)}%</span>
+                        <span className="font-mono text-primary-400 text-[10px]">Conf: {Math.round(room.confidence * 100)}%</span>
                       </div>
                     ))}
                   </div>
@@ -582,7 +602,7 @@ export const AnalysisResultsPage: React.FC = () => {
                     {ocr_results.map((ocr: any) => (
                       <div key={ocr.id} className="py-2 text-xs flex justify-between gap-4">
                         <span className="font-mono text-primary-800 dark:text-emerald-400 font-bold select-text">{ocr.text}</span>
-                        <span className="text-primary-400 text-[10px] shrink-0 font-mono">Conf: {Math.round(ocr.confidence*100)}%</span>
+                        <span className="text-primary-400 text-[10px] shrink-0 font-mono">Conf: {Math.round(ocr.confidence * 100)}%</span>
                       </div>
                     ))}
                   </div>
@@ -599,7 +619,7 @@ export const AnalysisResultsPage: React.FC = () => {
               <span>Architectural Advisory</span>
             </h4>
             <div className="text-xs text-primary-600 dark:text-primary-400 space-y-2 max-h-[220px] overflow-y-auto no-scrollbar">
-              {results.recommendations.map((rec: string, index: number) => (
+              {(results.recommendations || []).map((rec: string, index: number) => (
                 <div key={index} className="flex items-start space-x-2">
                   <span className="h-1.5 w-1.5 rounded-full bg-indigo-500 mt-1.5 shrink-0"></span>
                   <p className="leading-relaxed">{rec}</p>

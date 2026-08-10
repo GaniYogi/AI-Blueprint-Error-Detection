@@ -6,17 +6,7 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-// Request interceptor to add authorization token
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token && config.headers) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
+// No auth token — backend auto-uses default user when no token is provided.
 
 export const authService = {
   login: async (formData: FormData) => {
@@ -64,9 +54,11 @@ export const blueprintService = {
     const response = await api.post(`/blueprints/${id}/analyze`);
     return response.data;
   },
+  delete: async (id: number) => {
+    await api.delete(`/blueprints/${id}`);
+  },
   getImageUrl: (id: number) => {
-    const token = localStorage.getItem('token');
-    return `${API_BASE_URL}/blueprints/${id}/image?token=${token || ''}`;
+    return `${API_BASE_URL}/blueprints/${id}/image`;
   },
   getReportUrl: (id: number) => {
     return `${API_BASE_URL}/blueprints/${id}/report`;
