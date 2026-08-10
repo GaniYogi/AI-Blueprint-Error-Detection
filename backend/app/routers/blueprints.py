@@ -248,3 +248,39 @@ def view_blueprint_image(
         raise HTTPException(status_code=404, detail="Blueprint image file not found.")
         
     return FileResponse(blueprint.file_path, media_type=blueprint.content_type)
+
+
+@router.delete("/{blueprint_id}", status_code=204)
+def delete_blueprint(
+    blueprint_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user)
+):
+    blueprint = db.query(models.Blueprint).filter(
+        models.Blueprint.id == blueprint_id,
+        models.Blueprint.owner_id == current_user.id
+    ).first()
+
+    if not blueprint:
+        raise HTTPException(status_code=404, detail="Blueprint not found.")
+
+    # Delete uploaded file from disk
+    if blueprint.file_path and os.path.exists(blueprint.file_path):
+        try:
+            os.remove(blueprint.file_path)
+        except OSError:
+            pass
+
+    # Delete associated PDF reports from disk
+    reports = db.query(models.Report).filter(models.Report.blueprint_id == blueprint_id).all()
+    for report in reports:
+        if report.file_path and os.path.exists(report.file_path):
+            try:
+                os.remove(report.file_path)
+            except OSError:
+                pass
+
+    # Cascade deletes AnalysisResult + Reports rows automatically via DB relationship
+    db.delete(blueprint)
+    db.commit()
+    return None

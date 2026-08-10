@@ -1,519 +1,1369 @@
 import os
-import json
-import hashlib
-import random
 from typing import Dict, Any, List, Tuple
 
-# Try loading OpenCV and other computer vision libraries dynamically.
-# If they are not installed, the application falls back to a high-fidelity simulation.
+# OpenCV
 HAS_CV2 = False
+
 try:
     import cv2
-    import numpy as np
     HAS_CV2 = True
 except ImportError:
     pass
 
+
+# EasyOCR
 HAS_EASYOCR = False
+
 try:
     import easyocr
     HAS_EASYOCR = True
 except ImportError:
     pass
 
+
+# YOLO
 HAS_YOLO = False
+
 try:
     from ultralytics import YOLO
     HAS_YOLO = True
 except ImportError:
     pass
 
+
 class BlueprintAnalysisEngine:
-    def __init__(self, upload_dir: str, models_dir: str):
+
+    def __init__(
+        self,
+        upload_dir: str,
+        models_dir: str
+    ):
         self.upload_dir = upload_dir
         self.models_dir = models_dir
+
         self.reader = None
         self.yolo_model = None
-        
-        # Load EasyOCR reader if available
+
+        # -------------------------------------------------
+        # Load EasyOCR
+        # -------------------------------------------------
+
         if HAS_EASYOCR:
+
             try:
-                # Initialize English OCR reader
-                self.reader = easyocr.Reader(['en'], gpu=False)
+                print("Loading EasyOCR...")
+
+                self.reader = easyocr.Reader(
+                    ['en'],
+                    gpu=False
+                )
+
+                print("EasyOCR loaded successfully.")
+
             except Exception as e:
-                print(f"EasyOCR initialization failed: {e}. Falling back to simulation.")
-                
-        # Load YOLO model if available and weights exist
+
+                print(
+                    f"EasyOCR initialization failed: {e}"
+                )
+
+                self.reader = None
+
+        else:
+
+            print(
+                "EasyOCR is not installed."
+            )
+
+        # -------------------------------------------------
+        # Load YOLO
+        # -------------------------------------------------
+
         if HAS_YOLO:
+
             try:
-                weights_path = os.path.join(models_dir, "blueprint_yolo.pt")
+
+                weights_path = os.path.join(
+                    models_dir,
+                    "best.pt"
+                )
+
                 if os.path.exists(weights_path):
-                    self.yolo_model = YOLO(weights_path)
-            except Exception as e:
-                print(f"YOLO model initialization failed: {e}. Falling back to simulation.")
 
-    def run_analysis(self, file_path: str, rules: Dict[str, float]) -> Dict[str, Any]:
+                    print(
+                        f"Loading YOLO model: {weights_path}"
+                    )
+
+                    self.yolo_model = YOLO(
+                        weights_path
+                    )
+
+                    print(
+                        "YOLO model loaded successfully."
+                    )
+
+                    print(
+                        f"YOLO classes: {self.yolo_model.names}"
+                    )
+
+                else:
+
+                    print(
+                        f"YOLO weights not found: {weights_path}"
+                    )
+
+            except Exception as e:
+
+                print(
+                    f"YOLO model initialization failed: {e}"
+                )
+
+        else:
+
+            print(
+                "Ultralytics YOLO is not installed."
+            )
+
+
+    # =====================================================
+    # MAIN ANALYSIS
+    # =====================================================
+
+    def run_analysis(
+        self,
+        file_path: str,
+        rules: Dict[str, float]
+    ) -> Dict[str, Any]:
+
         """
-        Runs the full blueprint analysis. If computer vision libraries are loaded,
-        runs OCR and contour detection, combined with heuristic rules.
-        Otherwise, runs a high-fidelity simulated analysis.
+        Run complete blueprint analysis.
+
+        Pipeline:
+
+        Blueprint
+             ↓
+        Image metadata
+             ↓
+        YOLO object detection
+             ↓
+        EasyOCR text detection
+             ↓
+        Error analysis
+             ↓
+        Compliance analysis
+             ↓
+        Final result
         """
-        # Determine image dimensions
-        width, height = 1200, 800  # Default fallback dimensions
-        
+
+        # -------------------------------------------------
+        # Check file
+        # -------------------------------------------------
+
+        if not os.path.exists(file_path):
+
+            raise FileNotFoundError(
+                f"Blueprint file not found: {file_path}"
+            )
+
+
+        # -------------------------------------------------
+        # Image dimensions
+        # -------------------------------------------------
+
+        width = 1200
+        height = 800
+
         if HAS_CV2:
-            try:
-                img = cv2.imread(file_path)
-                if img is not None:
-                    height, width = img.shape[:2]
-            except Exception as e:
-                print(f"Failed to read image using OpenCV: {e}")
 
-        # Derive a deterministic seed from the filename to keep results stable for the same file,
-        # but varied across different files.
-        filename = os.path.basename(file_path)
-        hasher = hashlib.md5(filename.encode('utf-8'))
-        seed = int(hasher.hexdigest(), 16) % 1000000
-        self.local_random = random.Random(seed)
-        
-        # 1. Run Object Detection (YOLO / OpenCV Contours / Simulation)
-        detected_objects = self._detect_objects(file_path, width, height)
-        
-        # 2. Run OCR Text Extraction (EasyOCR / Simulation)
-        ocr_results = self._run_ocr(file_path, width, height)
-        
-        # 3. Analyze Spatial Elements & Find Design Errors
-        errors = self._detect_errors(detected_objects, ocr_results, width, height)
-        
-        # 4. Check Building Code Compliance Rules
-        compliance_checks, compliance_score, violation_count = self._check_compliance(
-            detected_objects, ocr_results, errors, rules
+            try:
+
+                image = cv2.imread(
+                    file_path
+                )
+
+                if image is not None:
+
+                    height, width = image.shape[:2]
+
+            except Exception as e:
+
+                print(
+                    f"Failed to read image: {e}"
+                )
+
+
+        filename = os.path.basename(
+            file_path
         )
-        
-        # Compile results
+
+
+        # -------------------------------------------------
+        # 1. YOLO OBJECT DETECTION (+ OpenCV fallback)
+        # -------------------------------------------------
+
+        detected_objects = self._detect_objects(
+            file_path,
+            width,
+            height
+        )
+
+
+        # -------------------------------------------------
+        # 2. OCR
+        # -------------------------------------------------
+
+        ocr_results = self._run_ocr(
+            file_path,
+            width,
+            height
+        )
+
+
+        # -------------------------------------------------
+        # 2.5  OCR-based room enrichment
+        #      When YOLO/OpenCV found ≤1 object, use the
+        #      room-name text detected by EasyOCR to create
+        #      accurate per-room bounding boxes.
+        # -------------------------------------------------
+
+        if len(detected_objects) <= 1 and ocr_results:
+            ocr_rooms = self._detect_rooms_from_ocr(
+                ocr_results, width, height
+            )
+            if len(ocr_rooms) > len(detected_objects):
+                # Keep OpenCV walls but replace the single-blob room
+                ocr_walls = self._detect_walls_opencv(
+                    file_path, width, height
+                )
+                detected_objects = ocr_rooms + ocr_walls
+                print(
+                    f"OCR enrichment: {len(ocr_rooms)} rooms, "
+                    f"{len(ocr_walls)} walls."
+                )
+
+
+        # -------------------------------------------------
+        # 3. ERROR DETECTION
+        # -------------------------------------------------
+
+        errors = self._detect_errors(
+            detected_objects,
+            ocr_results,
+            width,
+            height
+        )
+
+
+        # -------------------------------------------------
+        # 4. COMPLIANCE
+        # -------------------------------------------------
+
+        (
+            compliance_checks,
+            compliance_score,
+            violation_count
+        ) = self._check_compliance(
+
+            detected_objects,
+            ocr_results,
+            errors,
+            rules
+        )
+
+
+        # -------------------------------------------------
+        # 5. FINAL RESULT
+        # -------------------------------------------------
+
         results = {
+
             "image_metadata": {
+
                 "width": width,
+
                 "height": height,
+
                 "filename": filename
+
             },
-            "detected_objects": detected_objects,
-            "ocr_results": ocr_results,
-            "errors": errors,
-            "compliance_checks": compliance_checks,
-            "compliance_score": round(compliance_score, 1),
-            "total_violations": violation_count,
-            "total_errors": len(errors),
-            "risk_assessment": self._evaluate_risk(compliance_score, len(errors)),
-            "recommendations": self._generate_recommendations(errors, compliance_checks)
+
+            "detected_objects":
+                detected_objects,
+
+            "ocr_results":
+                ocr_results,
+
+            "errors":
+                errors,
+
+            "compliance_checks":
+                compliance_checks,
+
+            "compliance_score":
+                round(
+                    compliance_score,
+                    1
+                ),
+
+            "total_violations":
+                violation_count,
+
+            "total_errors":
+                len(errors),
+
+            "risk_assessment":
+                self._evaluate_risk(
+                    compliance_score,
+                    len(errors)
+                ),
+
+            "recommendations":
+                self._generate_recommendations(
+                    errors,
+                    compliance_checks
+                )
+
         }
-        
+
         return results
 
-    def _detect_objects(self, file_path: str, width: int, height: int) -> List[Dict[str, Any]]:
+
+    # =====================================================
+    # YOLO OBJECT DETECTION
+    # =====================================================
+
+    def _detect_objects(
+        self,
+        file_path: str,
+        width: int,
+        height: int
+    ) -> List[Dict[str, Any]]:
         """
-        Detects structural objects: walls, doors, windows, columns, staircases, rooms.
+        Detect blueprint elements using YOLO.
+        Falls back to OpenCV contour-based detection when YOLO
+        returns no results (e.g. model not trained on this style).
         """
+
         detected = []
-        
-        if self.yolo_model:
+
+        # --------------------------------------------------
+        # Try YOLO first
+        # --------------------------------------------------
+
+        if self.yolo_model is not None:
             try:
-                results = self.yolo_model(file_path)
-                # Parse real YOLO predictions
-                for r in results:
-                    boxes = r.boxes
-                    for box in boxes:
+                results = self.yolo_model.predict(
+                    source=file_path,
+                    conf=0.25,
+                    verbose=False
+                )
+
+                for result in results:
+                    if result.boxes is None:
+                        continue
+                    for box in result.boxes:
                         x1, y1, x2, y2 = box.xyxy[0].tolist()
                         cls = int(box.cls[0])
                         conf = float(box.conf[0])
                         label = self.yolo_model.names[cls]
-                        
+
                         detected.append({
                             "id": f"obj_{len(detected) + 1}",
-                            "label": label,
-                            "bbox": [x1, y1, x2 - x1, y2 - y1], # x, y, w, h
+                            "label": str(label),
+                            "bbox": [
+                                float(x1),
+                                float(y1),
+                                float(x2 - x1),
+                                float(y2 - y1)
+                            ],
                             "confidence": round(conf, 2)
                         })
-                if detected:
-                    return detected
-            except Exception as e:
-                print(f"YOLO inference failed: {e}. Falling back to simulation.")
 
-        # High-Fidelity Simulation of Blueprint Objects
-        # We define a few mock layouts based on the seed
-        layouts = [
-            # Layout A: 3-Bedroom Residential Plan
-            [
-                {"label": "room", "name": "Living Room", "bbox": [50, 50, 500, 400]},
-                {"label": "room", "name": "Kitchen", "bbox": [50, 450, 250, 300]},
-                {"label": "room", "name": "Dining Room", "bbox": [300, 450, 250, 300]},
-                {"label": "room", "name": "Master Bedroom", "bbox": [550, 50, 350, 350]},
-                {"label": "room", "name": "Bedroom 2", "bbox": [900, 50, 250, 350]},
-                {"label": "room", "name": "Bathroom 1", "bbox": [550, 400, 200, 200]},
-                {"label": "room", "name": "Corridor", "bbox": [750, 400, 400, 100]},
-                {"label": "room", "name": "Bedroom 3", "bbox": [750, 500, 200, 250]},
-                {"label": "room", "name": "Bathroom 2", "bbox": [950, 500, 200, 250]},
-                # Walls
-                {"label": "wall", "bbox": [40, 40, 1120, 20]},   # Exterior top
-                {"label": "wall", "bbox": [40, 40, 20, 720]},    # Exterior left
-                {"label": "wall", "bbox": [1140, 40, 20, 720]},  # Exterior right
-                {"label": "wall", "bbox": [40, 750, 1120, 20]},  # Exterior bottom
-                {"label": "wall", "bbox": [540, 40, 20, 410]},   # Interior division
-                {"label": "wall", "bbox": [50, 440, 500, 15]},   # Living/Kitchen divider
-                {"label": "wall", "bbox": [890, 40, 20, 360]},   # Bedroom division
-                # Doors
-                {"label": "door", "bbox": [40, 200, 15, 60], "name": "Main Door"},
-                {"label": "door", "bbox": [545, 120, 10, 50], "name": "Master Bedroom Door"},
-                {"label": "door", "bbox": [895, 120, 10, 50], "name": "Bedroom 2 Door"},
-                {"label": "door", "bbox": [600, 395, 50, 10], "name": "Bathroom 1 Door"},
-                {"label": "door", "bbox": [760, 495, 50, 10], "name": "Bedroom 3 Door"},
-                {"label": "door", "bbox": [960, 495, 40, 10], "name": "Bathroom 2 Door"}, # Note: extremely narrow door!
-                # Windows
-                {"label": "window", "bbox": [150, 35, 100, 15], "name": "Living Window 1"},
-                {"label": "window", "bbox": [350, 35, 100, 15], "name": "Living Window 2"},
-                {"label": "window", "bbox": [700, 35, 80, 15], "name": "Master Window"},
-                {"label": "window", "bbox": [1000, 35, 80, 15], "name": "Bedroom 2 Window"},
-                {"label": "window", "bbox": [1142, 600, 15, 60], "name": "Bedroom 3 Window"},
-                {"label": "window", "bbox": [1142, 120, 15, 50], "name": "Bathroom Window"},
-                # Columns & Staircase
-                {"label": "column", "bbox": [535, 45, 30, 30]},
-                {"label": "column", "bbox": [535, 435, 30, 30]},
-                {"label": "staircase", "bbox": [320, 200, 120, 150]},
-            ],
-            # Layout B: Studio Apartment Plan
-            [
-                {"label": "room", "name": "Open Living Area", "bbox": [60, 60, 600, 680]},
-                {"label": "room", "name": "Bathroom", "bbox": [660, 60, 480, 300]},
-                {"label": "room", "name": "Balcony", "bbox": [60, 740, 600, 100]},
-                {"label": "room", "name": "Walk-in Closet", "bbox": [660, 360, 480, 380]}, # Disconnected storage - no door!
-                # Walls
-                {"label": "wall", "bbox": [50, 50, 1100, 15]},
-                {"label": "wall", "bbox": [50, 50, 15, 790]},
-                {"label": "wall", "bbox": [1140, 50, 15, 790]},
-                {"label": "wall", "bbox": [50, 830, 1100, 15]},
-                {"label": "wall", "bbox": [650, 50, 15, 690]},
-                # Doors
-                {"label": "door", "bbox": [50, 300, 15, 60], "name": "Entry Door"},
-                {"label": "door", "bbox": [655, 150, 10, 50], "name": "Bath Door"},
-                # Windows
-                {"label": "window", "bbox": [300, 825, 120, 15], "name": "Balcony Slider"},
-            ]
-        ]
-        
-        # Pick layout based on seed
-        chosen_layout = layouts[self.local_random.randint(0, len(layouts) - 1)]
-        
-        # Convert dimensions relative to image width/height (Layouts above are calibrated for 1200x800)
-        scale_x = width / 1200.0
-        scale_y = height / 800.0
-        
-        for idx, item in enumerate(chosen_layout):
-            rx, ry, rw, rh = item["bbox"]
-            scaled_bbox = [
-                int(rx * scale_x),
-                int(ry * scale_y),
-                int(rw * scale_x),
-                int(rh * scale_y)
-            ]
-            
-            obj = {
-                "id": f"obj_{idx + 1}",
-                "label": item["label"],
-                "bbox": scaled_bbox,
-                "confidence": round(self.local_random.uniform(0.85, 0.98), 2)
-            }
-            if "name" in item:
-                obj["name"] = item["name"]
-            detected.append(obj)
-            
+            except Exception as e:
+                print(f"YOLO inference failed: {e}")
+
+        print(f"YOLO detected {len(detected)} objects.")
+
+        # --------------------------------------------------
+        # Fallback: OpenCV contour-based detection
+        # --------------------------------------------------
+
+        if len(detected) == 0 and HAS_CV2:
+            print("YOLO found nothing — running OpenCV contour fallback.")
+            detected = self._detect_objects_opencv(file_path, width, height)
+
         return detected
 
-    def _run_ocr(self, file_path: str, width: int, height: int) -> List[Dict[str, Any]]:
+
+    def _detect_objects_opencv(
+        self,
+        file_path: str,
+        width: int,
+        height: int
+    ) -> List[Dict[str, Any]]:
         """
-        Extracts room labels, text annotations, and physical dimensions.
+        OpenCV-based fallback detector.
+
+        Key insight: floor plan rooms share door openings, so a plain
+        flood-fill can't separate them.  We first DILATE the walls
+        heavily to seal door gaps, THEN flood-fill from corners to
+        remove the exterior, leaving individual room blobs.
         """
-        ocr_texts = []
-        
-        if self.reader:
-            try:
-                # Run actual EasyOCR
-                results = self.reader.readtext(file_path)
-                for idx, (bbox, text, conf) in enumerate(results):
-                    # EasyOCR bbox format: [[x1, y1], [x2, y2], [x3, y3], [x4, y4]]
-                    xs = [pt[0] for pt in bbox]
-                    ys = [pt[1] for pt in bbox]
-                    x, y = min(xs), min(ys)
-                    w, h = max(xs) - x, max(ys) - y
-                    
-                    ocr_texts.append({
-                        "id": f"ocr_{idx + 1}",
-                        "text": text,
-                        "bbox": [int(x), int(y), int(w), int(h)],
-                        "confidence": round(float(conf), 2)
+
+        import cv2
+        import numpy as np
+
+        detected = []
+
+        try:
+            img = cv2.imread(file_path)
+            if img is None:
+                return detected
+
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            h, w = gray.shape
+
+            # --------------------------------------------------
+            # 1. ROOM DETECTION  (dilation-seal + flood-fill)
+            # --------------------------------------------------
+
+            # Threshold: walls → 255, open space → 0
+            _, wall_mask = cv2.threshold(
+                gray, 180, 255, cv2.THRESH_BINARY_INV
+            )
+
+            # Dilate walls heavily to seal door/opening gaps.
+            # gap_size ≈ 3–4 % of image; adjust down if rooms merge.
+            gap_size = max(20, int(min(w, h) * 0.035))
+            kernel_gap = np.ones((gap_size, gap_size), np.uint8)
+            sealed = cv2.dilate(wall_mask, kernel_gap, iterations=1)
+
+            # Invert: now open-space pixels are white
+            inv = cv2.bitwise_not(sealed)
+
+            # Flood-fill from all four corners to mark exterior
+            flooded = inv.copy()
+            fill_mask = np.zeros((h + 2, w + 2), np.uint8)
+            for pt in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]:
+                if flooded[pt[1], pt[0]] == 255:
+                    cv2.floodFill(flooded, fill_mask, pt, 0)
+
+            # What remains = interior rooms
+            room_mask = flooded
+
+            # Small close to remove noise
+            k_small = np.ones((5, 5), np.uint8)
+            room_mask = cv2.morphologyEx(
+                room_mask, cv2.MORPH_CLOSE, k_small
+            )
+
+            contours, _ = cv2.findContours(
+                room_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+            )
+
+            img_area = w * h
+            room_count = 0
+
+            for contour in sorted(
+                contours, key=cv2.contourArea, reverse=True
+            ):
+                area = cv2.contourArea(contour)
+                # Must be between 0.3 % and 60 % of image
+                if area < img_area * 0.003 or area > img_area * 0.60:
+                    continue
+
+                x, y, bw, bh = cv2.boundingRect(contour)
+                rect_area = bw * bh
+                if rect_area == 0:
+                    continue
+
+                fill_ratio = area / rect_area
+                aspect    = max(bw, bh) / max(min(bw, bh), 1)
+
+                if fill_ratio < 0.25 or aspect > 10:
+                    continue
+
+                room_count += 1
+                detected.append({
+                    'id':         f'room_{room_count}',
+                    'label':      'room',
+                    'name':       f'Space {room_count}',
+                    'bbox':       [float(x), float(y),
+                                   float(bw), float(bh)],
+                    'confidence': round(
+                        min(0.5 + fill_ratio * 0.4, 0.95), 2
+                    ),
+                })
+
+            print(f'OpenCV seal+flood found {room_count} rooms.')
+
+            # --------------------------------------------------
+            # 2. WALL SEGMENTS  (Hough lines)
+            # --------------------------------------------------
+
+            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+            edges   = cv2.Canny(blurred, 30, 120)
+
+            lines = cv2.HoughLinesP(
+                edges,
+                rho=1,
+                theta=np.pi / 180,
+                threshold=60,
+                minLineLength=int(min(w, h) * 0.04),
+                maxLineGap=10,
+            )
+
+            wall_count = 0
+            if lines is not None:
+                merged: List[Tuple] = []
+                for line in lines:
+                    x1, y1, x2, y2 = line[0]
+                    length = ((x2-x1)**2 + (y2-y1)**2) ** 0.5
+                    if length < min(w, h) * 0.03:
+                        continue
+                    is_dup = any(
+                        abs(x1-mx1)+abs(y1-my1) < 25 and
+                        abs(x2-mx2)+abs(y2-my2) < 25
+                        for mx1, my1, mx2, my2 in merged
+                    )
+                    if not is_dup:
+                        merged.append((x1, y1, x2, y2))
+
+                for x1, y1, x2, y2 in merged[:35]:
+                    bx  = float(min(x1, x2))
+                    by  = float(min(y1, y2))
+                    bw2 = float(max(abs(x2-x1), 5))
+                    bh2 = float(max(abs(y2-y1), 5))
+                    wall_count += 1
+                    detected.append({
+                        'id':         f'wall_{wall_count}',
+                        'label':      'wall',
+                        'bbox':       [bx, by, bw2, bh2],
+                        'confidence': 0.78,
                     })
-                if ocr_texts:
-                    return ocr_texts
-            except Exception as e:
-                print(f"EasyOCR inference failed: {e}. Falling back to simulation.")
 
-        # High-Fidelity Simulation of OCR labels
-        # These are calibrated to coordinate with the objects from _detect_objects above.
-        scale_x = width / 1200.0
-        scale_y = height / 800.0
-        
-        # Mock OCR items based on common blueprint labels
-        mock_ocr_items = [
-            # Room Labels
-            {"text": "LIVING ROOM", "coords": [200, 200]},
-            {"text": "16' x 14'", "coords": [200, 230]},
-            {"text": "KITCHEN", "coords": [120, 560]},
-            {"text": "10' x 12'", "coords": [120, 590]},
-            {"text": "DINING ROOM", "coords": [380, 560]},
-            {"text": "10' x 12'", "coords": [380, 590]},
-            {"text": "MASTER BEDROOM", "coords": [700, 180]},
-            {"text": "14' x 12'", "coords": [700, 210]},
-            {"text": "BEDROOM 2", "coords": [1000, 180]},
-            {"text": "8' x 8'", "coords": [1000, 210]},  # Note: 64 sq ft, violates 70 sq ft min
-            {"text": "BEDROOM 3", "coords": [820, 600]},
-            {"text": "10' x 10'", "coords": [820, 630]},
-            {"text": "BATH 1", "coords": [620, 480]},
-            {"text": "BATH 2", "coords": [1020, 600]},
-            # Dimension annotations
-            {"text": "3.0' WIDE CORRIDOR", "coords": [850, 430]},
-            {"text": "DOOR: 32\"x80\"", "coords": [560, 100]},
-            {"text": "DOOR: 28\"x80\"", "coords": [970, 470]}, # Note: 28 inches (2.33 ft), violates 34 inches min
-            {"text": "WINDOW: 4'x4'", "coords": [150, 20]},
-            {"text": "WINDOW: 4'x4'", "coords": [350, 20]},
+            print(f'OpenCV Hough found {wall_count} wall segments.')
+
+        except Exception as e:
+            print(f'OpenCV fallback detection failed: {e}')
+
+        return detected
+
+
+
+    # =====================================================
+    # OCR-BASED ROOM DETECTION
+    # =====================================================
+
+    def _detect_rooms_from_ocr(
+        self,
+        ocr_results: List[Dict[str, Any]],
+        width: int,
+        height: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Build room detections from EasyOCR text results.
+        Finds text entries that match room-name keywords,
+        then estimates each room's bounding box from the
+        text position and any dimension string in the text.
+        """
+
+        import re
+
+        ROOM_KEYWORDS = [
+            'bedroom', 'kitchen', 'living', 'dining',
+            'toilet', 'bathroom', 'bath', 'verandah',
+            'staircase', 'garage', 'utility', 'pantry',
+            'hall', 'corridor', 'lobby', 'study', 'office',
+            'store', 'laundry', 'porch', 'balcony', 'room',
         ]
-        
-        for idx, item in enumerate(mock_ocr_items):
-            cx, cy = item["coords"]
-            ocr_texts.append({
-                "id": f"ocr_{idx + 1}",
-                "text": item["text"],
-                "bbox": [int(cx * scale_x), int(cy * scale_y), int(120 * scale_x), int(30 * scale_y)],
-                "confidence": round(self.local_random.uniform(0.90, 0.99), 2)
-            })
-            
-        return ocr_texts
 
-    def _detect_errors(self, detected_objects: List[Dict[str, Any]], ocr_results: List[Dict[str, Any]], width: int, height: int) -> List[Dict[str, Any]]:
+        rooms = []
+        used_positions: List[Tuple] = []
+
+        for ocr in ocr_results:
+            text_raw = ocr.get('text', '')
+            text_low = text_raw.lower().strip()
+            bbox = ocr.get('bbox')          # [x, y, w, h]
+
+            if not bbox or not text_low:
+                continue
+
+            # Must contain a room keyword
+            if not any(kw in text_low for kw in ROOM_KEYWORDS):
+                continue
+
+            x, y, w, h = [float(v) for v in bbox]
+            cx, cy = x + w / 2, y + h / 2
+
+            # Deduplicate: skip if too close to an existing room
+            is_dup = False
+            for ux, uy in used_positions:
+                if abs(cx - ux) < 80 and abs(cy - uy) < 80:
+                    is_dup = True
+                    break
+            if is_dup:
+                continue
+            used_positions.append((cx, cy))
+
+            # Try to extract dimensions, e.g. "12'0 X 10'0" or "3.6 x 3.0"
+            rw, rh = w + 60, h + 60   # default: expand text box a little
+
+            dim_match = re.search(
+                r"(\d+)['\u2019]?\s*(?:\d+\"?)?\s*[xX\u00d7]\s*(\d+)",
+                text_raw
+            )
+            if dim_match:
+                try:
+                    ft_w = int(dim_match.group(1))
+                    ft_h = int(dim_match.group(2))
+                    # Rough scale: assume total interior ~30 ft wide
+                    scale = (width * 0.75) / 30.0
+                    rw = min(ft_w * scale, width * 0.45)
+                    rh = min(ft_h * scale, height * 0.45)
+                except Exception:
+                    pass
+
+            rx = max(0.0, cx - rw / 2)
+            ry = max(0.0, cy - rh / 2)
+            rw = min(rw, width - rx)
+            rh = min(rh, height - ry)
+
+            # Clean up room name (take first meaningful words)
+            name_parts = text_raw.strip().split()
+            name = ' '.join(name_parts[:4])
+
+            rooms.append({
+                'id': f'room_{len(rooms) + 1}',
+                'label': 'room',
+                'name': name,
+                'bbox': [rx, ry, rw, rh],
+                'confidence': round(float(ocr.get('confidence', 0.85)), 2),
+            })
+
+        print(f"OCR room detection found {len(rooms)} rooms.")
+        return rooms
+
+
+    def _detect_walls_opencv(
+        self,
+        file_path: str,
+        width: int,
+        height: int
+    ) -> List[Dict[str, Any]]:
         """
-        Analyzes design errors like wall overlaps, missing doors, dimension mismatches, etc.
+        Detect wall line segments using Hough transform only.
+        Used as a standalone complement to OCR-based room detection.
         """
+
+        if not HAS_CV2:
+            return []
+
+        import cv2
+        import numpy as np
+
+        walls: List[Dict[str, Any]] = []
+
+        try:
+            img = cv2.imread(file_path)
+            if img is None:
+                return walls
+
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            h, w = gray.shape
+
+            blurred = cv2.GaussianBlur(gray, (3, 3), 0)
+            edges = cv2.Canny(blurred, 30, 120)
+
+            lines = cv2.HoughLinesP(
+                edges,
+                rho=1,
+                theta=np.pi / 180,
+                threshold=60,
+                minLineLength=int(min(w, h) * 0.04),
+                maxLineGap=10
+            )
+
+            if lines is None:
+                return walls
+
+            merged: List[Tuple] = []
+            for line in lines:
+                x1, y1, x2, y2 = line[0]
+                length = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+                if length < min(w, h) * 0.03:
+                    continue
+                is_dup = any(
+                    abs(x1 - mx1) + abs(y1 - my1) < 25 and
+                    abs(x2 - mx2) + abs(y2 - my2) < 25
+                    for mx1, my1, mx2, my2 in merged
+                )
+                if not is_dup:
+                    merged.append((x1, y1, x2, y2))
+
+            for idx, (x1, y1, x2, y2) in enumerate(merged[:35]):
+                bx = float(min(x1, x2))
+                by = float(min(y1, y2))
+                bw = float(max(abs(x2 - x1), 5))
+                bh = float(max(abs(y2 - y1), 5))
+                walls.append({
+                    'id': f'wall_{idx + 1}',
+                    'label': 'wall',
+                    'bbox': [bx, by, bw, bh],
+                    'confidence': 0.78,
+                })
+
+            print(f"_detect_walls_opencv found {len(walls)} walls.")
+
+        except Exception as e:
+            print(f"_detect_walls_opencv failed: {e}")
+
+        return walls
+
+
+    # =====================================================
+    # OCR
+    # =====================================================
+
+    def _run_ocr(
+        self,
+        file_path: str,
+        width: int,
+        height: int
+    ) -> List[Dict[str, Any]]:
+
+        """
+        Extract text from blueprint using EasyOCR.
+
+        IMPORTANT:
+        If OCR fails, an empty list is returned.
+
+        No fake/simulated OCR data is generated.
+        """
+
+        if self.reader is None:
+
+            print(
+                "EasyOCR is not available."
+            )
+
+            return []
+
+
+        try:
+
+            results = self.reader.readtext(
+                file_path
+            )
+
+            ocr_texts = []
+
+
+            for idx, result in enumerate(
+                results
+            ):
+
+                # EasyOCR normally returns:
+                #
+                # [bbox, text, confidence]
+
+                if len(result) != 3:
+
+                    continue
+
+
+                bbox, text, conf = result
+
+
+                xs = [
+
+                    point[0]
+
+                    for point in bbox
+
+                ]
+
+                ys = [
+
+                    point[1]
+
+                    for point in bbox
+
+                ]
+
+
+                x = min(xs)
+
+                y = min(ys)
+
+                w = max(xs) - x
+
+                h = max(ys) - y
+
+
+                ocr_texts.append({
+
+                    "id":
+                        f"ocr_{idx + 1}",
+
+                    "text":
+                        str(text),
+
+                    "bbox": [
+
+                        int(x),
+
+                        int(y),
+
+                        int(w),
+
+                        int(h)
+
+                    ],
+
+                    "confidence":
+                        round(
+                            float(conf),
+                            2
+                        )
+
+                })
+
+
+            print(
+                f"OCR detected {len(ocr_texts)} text items."
+            )
+
+
+            return ocr_texts
+
+
+        except Exception as e:
+
+            print(
+                f"EasyOCR inference failed: {e}"
+            )
+
+            return []
+
+
+    # =====================================================
+    # ERROR DETECTION
+    # =====================================================
+
+    def _detect_errors(
+        self,
+        detected_objects: List[Dict[str, Any]],
+        ocr_results: List[Dict[str, Any]],
+        width: int,
+        height: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Detect blueprint problems from YOLO or OpenCV detection results.
+        """
+
         errors = []
-        scale_x = width / 1200.0
-        scale_y = height / 800.0
-        
-        # We can implement simple heuristics
-        # 1. Look for Walk-in Closet (Layout B simulation support) or Bathrooms
-        # Check if we have a room without any doors inside it
-        rooms = [obj for obj in detected_objects if obj["label"] == "room"]
-        doors = [obj for obj in detected_objects if obj["label"] == "door"]
-        walls = [obj for obj in detected_objects if obj["label"] == "wall"]
-        columns = [obj for obj in detected_objects if obj["label"] == "column"]
-        
-        # Check for disconnected rooms (Accessibility violation)
-        # For simulation, we check if Walk-in Closet exists or we insert one deterministically.
-        has_walk_in_closet = any("Walk-in Closet" in r.get("name", "") for r in rooms)
-        if has_walk_in_closet:
-            closet = next(r for r in rooms if "Walk-in Closet" in r.get("name", ""))
+
+        # Separate detected classes (handles both YOLO and OpenCV labels)
+        walls   = [o for o in detected_objects if o["label"].lower() in ("wall",)]
+        doors   = [o for o in detected_objects if o["label"].lower() in ("door",)]
+        windows = [o for o in detected_objects if o["label"].lower() in ("window",)]
+        rooms   = [o for o in detected_objects if o["label"].lower() in ("room",)]
+
+        # Low-confidence detections
+        for obj in detected_objects:
+            confidence = float(obj.get("confidence", 0))
+            if confidence < 0.35:
+                errors.append({
+                    "id": f"err_{len(errors) + 1}",
+                    "type": "low_confidence_detection",
+                    "description": (
+                        f"Low-confidence {obj['label']} detection "
+                        f"({confidence:.2f})."
+                    ),
+                    "bbox": obj["bbox"],
+                    "severity": "Low",
+                    "suggestion": (
+                        "Review this area manually or upload a higher-resolution blueprint."
+                    )
+                })
+
+        # No structural elements detected at all
+        if len(walls) == 0 and len(rooms) == 0:
             errors.append({
-                "id": "err_1",
-                "type": "disconnected_room",
-                "description": "Room 'Walk-in Closet' is disconnected. No door access detected connecting this room to the open living space.",
-                "bbox": closet["bbox"],
-                "severity": "Critical",
-                "suggestion": "Add a standard 2'-8\" width interior door or sliding pocket door on the dividing wall."
-            })
-            
-        # 2. Check for wall overlaps / Structural conflict
-        # Column collision detection simulation: let's place a warning near a wall overlap or column
-        if columns and walls:
-            # Create a mock structural conflict where a column intercepts a window line or wall incorrectly
-            errors.append({
-                "id": f"err_{len(errors) + 1}",
-                "type": "structural_conflict",
-                "description": "Structural Column overlaps with interior partition frame on the Living Room wall line.",
-                "bbox": [int(520 * scale_x), int(30 * scale_y), int(50 * scale_x), int(50 * scale_y)],
+                "id": "err_no_walls",
+                "type": "missing_wall_detection",
+                "description": (
+                    "No wall or room elements were detected in the blueprint."
+                ),
+                "bbox": None,
                 "severity": "High",
-                "suggestion": "Align the structural column centering axis with the primary load-bearing wall framing."
+                "suggestion": (
+                    "Verify whether walls are clearly visible. Upload a cleaner, "
+                    "higher-contrast version of the blueprint."
+                )
             })
 
-        # 3. Check for Room Dimension Mismatch (OCR Dimension value vs bounding box pixel size)
-        # For instance, if Bedroom 2 is labeled "8' x 8'" (64 sq ft), but its bounding box size on plan shows it is visually larger or smaller.
-        # Or let's trigger a mismatch error:
-        errors.append({
-            "id": f"err_{len(errors) + 1}",
-            "type": "dimension_mismatch",
-            "description": "Dimension mismatch detected for 'Bedroom 2'. OCR label says '8\\' x 8\\'' (64 sq ft), but CAD boundary scales to 10.5' x 11.2' (117 sq ft).",
-            "bbox": [int(900 * scale_x), int(50 * scale_y), int(250 * scale_x), int(350 * scale_y)],
-            "severity": "Medium",
-            "suggestion": "Re-verify the dimensional text annotation or adjust the layout geometry scaling on the canvas."
-        })
+        # No doors detected (only flag if YOLO was available and found nothing)
+        if len(doors) == 0 and len(rooms) > 0:
+            errors.append({
+                "id": "err_no_doors",
+                "type": "missing_door_detection",
+                "description": (
+                    "No door elements were identified. "
+                    "Doors may be present but not detected by the model."
+                ),
+                "bbox": None,
+                "severity": "Medium",
+                "suggestion": (
+                    "Verify door locations manually. "
+                    "The detection model may need additional training data."
+                )
+            })
 
-        # 4. Check for missing doors in bathroom or bedrooms
-        # If there are no doors near Bedroom/Bathroom bounding boxes.
-        # Let's add an accessibility layout warning
-        errors.append({
-            "id": f"err_{len(errors) + 1}",
-            "type": "missing_annotation",
-            "description": "Missing swing swing-direction marker or clear clearance dimensions for the Master Bathroom entrance.",
-            "bbox": [int(550 * scale_x), int(400 * scale_y), int(100 * scale_x), int(100 * scale_y)],
-            "severity": "Low",
-            "suggestion": "Draw the door swing arc annotation indicating a minimum 180-degree free space swing."
-        })
+        # No windows detected
+        if len(windows) == 0 and len(rooms) > 0:
+            errors.append({
+                "id": "err_no_windows",
+                "type": "missing_window_detection",
+                "description": (
+                    "No window elements were identified. "
+                    "Ensure windows are marked clearly on the plan."
+                ),
+                "bbox": None,
+                "severity": "Medium",
+                "suggestion": "Verify window locations manually."
+            })
+
+        # Too few rooms for a residential layout
+        if len(rooms) > 0 and len(rooms) < 2:
+            errors.append({
+                "id": "err_too_few_rooms",
+                "type": "insufficient_habitable_spaces",
+                "description": (
+                    f"Only {len(rooms)} habitable space(s) detected. "
+                    "A minimum residential layout requires at least 2 distinct rooms."
+                ),
+                "bbox": rooms[0]["bbox"] if rooms else None,
+                "severity": "High",
+                "suggestion": (
+                    "Ensure all rooms are clearly enclosed with solid walls."
+                )
+            })
+
+        # Overlapping room bounding boxes (potential drafting error)
+        for i, r1 in enumerate(rooms):
+            for j, r2 in enumerate(rooms):
+                if i >= j:
+                    continue
+                x1, y1, w1, h1 = r1["bbox"]
+                x2, y2, w2, h2 = r2["bbox"]
+                ox = max(0, min(x1+w1, x2+w2) - max(x1, x2))
+                oy = max(0, min(y1+h1, y2+h2) - max(y1, y2))
+                overlap = ox * oy
+                area1 = w1 * h1
+                if area1 > 0 and overlap / area1 > 0.4:
+                    errors.append({
+                        "id": f"err_overlap_{i}_{j}",
+                        "type": "overlapping_room_boundaries",
+                        "description": (
+                            f"Space {i+1} and Space {j+1} significantly overlap — "
+                            "possible drafting error or unclear wall boundary."
+                        ),
+                        "bbox": r1["bbox"],
+                        "severity": "Medium",
+                        "suggestion": (
+                            "Review the boundary between these two spaces. "
+                            "Ensure wall lines are complete and non-overlapping."
+                        )
+                    })
 
         return errors
 
-    def _check_compliance(self, detected_objects: List[Dict[str, Any]], ocr_results: List[Dict[str, Any]], errors: List[Dict[str, Any]], rules: Dict[str, float]) -> Tuple[List[Dict[str, Any]], float, int]:
+
+
+    # =====================================================
+    # COMPLIANCE
+    # =====================================================
+
+    def _check_compliance(
+        self,
+        detected_objects: List[Dict[str, Any]],
+        ocr_results: List[Dict[str, Any]],
+        errors: List[Dict[str, Any]],
+        rules: Dict[str, float]
+    ) -> Tuple[
+        List[Dict[str, Any]],
+        float,
+        int
+    ]:
+
         """
-        Evaluates active building code rules. Returns: (list of compliance checks, compliance score, violation count).
+        Generate compliance checks from actual
+        detection results.
+
+        No hard-coded bedroom/door dimensions
+        are used.
         """
-        # Read active rule thresholds (use values passed from FastAPI or use defaults)
-        min_bed_area = rules.get("min_bedroom_area", 70.0)
-        min_door_width = rules.get("min_door_width", 2.8) # feet
-        min_corridor_width = rules.get("min_corridor_width", 3.0) # feet
-        window_ventilation_ratio = rules.get("window_ventilation_ratio", 8.0) # percent
-        accessibility_compliant = rules.get("accessibility_compliance", 1.0)
-        
+
         checks = []
-        violations = 0
-        
-        # 1. Check Bedroom Areas
-        # Bedroom 2 size is 8' x 8' = 64 sq ft. Let's evaluate this against min_bed_area.
-        bed2_area = 64.0
-        status_bed2 = "PASS" if bed2_area >= min_bed_area else "FAIL"
-        if status_bed2 == "FAIL":
-            violations += 1
+
+
+        # -------------------------------------------------
+        # Count objects
+        # -------------------------------------------------
+
+        walls = sum(
+            1 for obj in detected_objects
+            if obj["label"].lower() in ("wall",)
+        )
+
+        doors = sum(
+            1 for obj in detected_objects
+            if obj["label"].lower() in ("door",)
+        )
+
+        windows = sum(
+            1 for obj in detected_objects
+            if obj["label"].lower() in ("window",)
+        )
+
+        rooms = sum(
+            1 for obj in detected_objects
+            if obj["label"].lower() in ("room",)
+        )
+
+        # Treat detected rooms as having walls present
+        structural_ok = walls > 0 or rooms > 0
+
+        # -------------------------------------------------
+        # Wall check
+        # -------------------------------------------------
+
+        wall_status = "PASS" if structural_ok else "REVIEW"
+
         checks.append({
-            "rule_key": "min_bedroom_area",
-            "name": "Minimum Bedroom Area",
-            "category": "space",
-            "description": f"Verify if all bedrooms meet the minimum habitable area of {min_bed_area} sq ft.",
-            "threshold": f"{min_bed_area} sq ft",
-            "actual": f"{bed2_area} sq ft (Bedroom 2)",
-            "status": status_bed2,
+            "rule_key": "wall_detection",
+            "name": "Wall Detection",
+            "category": "structure",
+            "description": "Check whether wall/room elements were detected.",
+            "threshold": "At least 1 wall or room",
+            "actual": f"{walls} walls, {rooms} rooms detected",
+            "status": wall_status,
             "severity": "High",
-            "suggestion": "Enlarge Bedroom 2 dimensions to meet local code requirements."
-        })
-        
-        # 2. Check Door Widths
-        # Let's simulate a failed door width check: Bathroom 2 door width is 2.33 ft (28 inches)
-        actual_door_w = 2.33
-        status_door = "PASS" if actual_door_w >= min_door_width else "FAIL"
-        if status_door == "FAIL":
-            violations += 1
-        checks.append({
-            "rule_key": "min_door_width",
-            "name": "Minimum Door Width",
-            "category": "accessibility",
-            "description": f"Verify if standard interior doors have a minimum width of {min_door_width} ft.",
-            "threshold": f"{min_door_width} ft",
-            "actual": f"{actual_door_w} ft (Bathroom 2 Door)",
-            "status": status_door,
-            "severity": "Medium",
-            "suggestion": "Increase the doorway frame width to at least 34 inches (2.8 ft) for accessibility."
-        })
-        
-        # 3. Check Corridor Widths
-        # Let's say corridor is 3.0 ft.
-        corridor_w = 3.0
-        status_corridor = "PASS" if corridor_w >= min_corridor_width else "FAIL"
-        if status_corridor == "FAIL":
-            violations += 1
-        checks.append({
-            "rule_key": "min_corridor_width",
-            "name": "Minimum Corridor Width",
-            "category": "accessibility",
-            "description": f"Verify if primary hallways/corridors meet the minimum width of {min_corridor_width} ft.",
-            "threshold": f"{min_corridor_width} ft",
-            "actual": f"{corridor_w} ft (Corridor)",
-            "status": status_corridor,
-            "severity": "Medium",
-            "suggestion": "Widen the hallway corridor partitions if necessary to maintain code limits."
-        })
-        
-        # 4. Window Ventilation Requirements
-        # Let's say Bedroom 3 window area ratio is 7.5% of room area (fails 8% ventilation rule)
-        actual_vent_ratio = 7.5
-        status_vent = "PASS" if actual_vent_ratio >= window_ventilation_ratio else "FAIL"
-        if status_vent == "FAIL":
-            violations += 1
-        checks.append({
-            "rule_key": "window_ventilation_ratio",
-            "name": "Window Ventilation Ratio",
-            "category": "ventilation",
-            "description": f"Natural light & ventilation window area must be at least {window_ventilation_ratio}% of room area.",
-            "threshold": f"{window_ventilation_ratio}%",
-            "actual": f"{actual_vent_ratio}% (Bedroom 3)",
-            "status": status_vent,
-            "severity": "Medium",
-            "suggestion": "Increase the window size in Bedroom 3 to improve daylight and airflow."
+            "suggestion": (
+                "Verify wall elements manually if they were not detected."
+            )
         })
 
-        # 5. Accessibility compliance
-        # Let's assume ADA accessibility is overall failing due to the Bathroom 2 door width & missing annotations
-        status_ada = "FAIL" if (accessibility_compliant > 0 and status_door == "FAIL") else "PASS"
-        if status_ada == "FAIL":
-            violations += 1
+
+        # -------------------------------------------------
+        # Door check
+        # -------------------------------------------------
+
+        door_status = (
+            "PASS"
+            if doors > 0
+            else "REVIEW"
+        )
+
+
         checks.append({
-            "rule_key": "accessibility_compliance",
-            "name": "Accessibility Compliance (ADA)",
-            "category": "accessibility",
-            "description": "Ensure clear toilet clearance and barrier-free access in bathrooms.",
-            "threshold": "Compliant",
-            "actual": "Non-compliant toilet clearance & narrow door width",
-            "status": status_ada,
-            "severity": "High",
-            "suggestion": "Rearrange toilet fixture placement and expand entrance to meet ADA requirements."
+
+            "rule_key":
+                "door_detection",
+
+            "name":
+                "Door Detection",
+
+            "category":
+                "accessibility",
+
+            "description":
+                "Check whether door elements were detected.",
+
+            "threshold":
+                "At least 1 door",
+
+            "actual":
+                f"{doors} doors detected",
+
+            "status":
+                door_status,
+
+            "severity":
+                "Medium",
+
+            "suggestion":
+                (
+                    "Verify door locations manually."
+                )
+
         })
-        
-        # Calculate Compliance Score
-        # Start at 100%, deduct points per failure based on severity:
-        # High: -15%, Medium: -10%, Low: -5%
+
+
+        # -------------------------------------------------
+        # Window check
+        # -------------------------------------------------
+
+        window_status = (
+            "PASS"
+            if windows > 0
+            else "REVIEW"
+        )
+
+
+        checks.append({
+
+            "rule_key":
+                "window_detection",
+
+            "name":
+                "Window Detection",
+
+            "category":
+                "ventilation",
+
+            "description":
+                "Check whether window elements were detected.",
+
+            "threshold":
+                "At least 1 window",
+
+            "actual":
+                f"{windows} windows detected",
+
+            "status":
+                window_status,
+
+            "severity":
+                "Medium",
+
+            "suggestion":
+                (
+                    "Verify window locations manually."
+                )
+
+        })
+
+
+        # -------------------------------------------------
+        # OCR check
+        # -------------------------------------------------
+
+        checks.append({
+
+            "rule_key":
+                "ocr_detection",
+
+            "name":
+                "Blueprint Text Detection",
+
+            "category":
+                "documentation",
+
+            "description":
+                "Check whether text annotations were detected.",
+
+            "threshold":
+                "Text detection available",
+
+            "actual":
+                f"{len(ocr_results)} text items detected",
+
+            "status":
+                (
+                    "PASS"
+                    if len(ocr_results) > 0
+                    else "REVIEW"
+                ),
+
+            "severity":
+                "Low",
+
+            "suggestion":
+                (
+                    "Verify dimensions and room labels "
+                    "manually if OCR does not detect them."
+                )
+
+        })
+
+
+        # -------------------------------------------------
+        # Calculate score
+        # -------------------------------------------------
+
         score = 100.0
-        for chk in checks:
-            if chk["status"] == "FAIL":
-                if chk["severity"] == "Critical":
-                    score -= 25.0
-                elif chk["severity"] == "High":
-                    score -= 15.0
-                elif chk["severity"] == "Medium":
-                    score -= 10.0
-                else:
-                    score -= 5.0
-        
-        score = max(0.0, score)
-        return checks, score, violations
 
-    def _evaluate_risk(self, compliance_score: float, error_count: int) -> str:
-        """
-        Determines the overall structural and code compliance risk level.
-        """
-        if compliance_score >= 90.0 and error_count <= 1:
+
+        for error in errors:
+
+            severity = error.get(
+                "severity",
+                "Low"
+            )
+
+
+            if severity == "Critical":
+
+                score -= 25.0
+
+
+            elif severity == "High":
+
+                score -= 15.0
+
+
+            elif severity == "Medium":
+
+                score -= 10.0
+
+
+            else:
+
+                score -= 5.0
+
+
+        score = max(
+            0.0,
+            score
+        )
+
+
+        # Only actual errors count as violations
+        violations = sum(
+
+            1
+
+            for error in errors
+
+            if error.get("severity")
+            in [
+                "Critical",
+                "High",
+                "Medium"
+            ]
+
+        )
+
+
+        return (
+            checks,
+            score,
+            violations
+        )
+
+
+    # =====================================================
+    # RISK ASSESSMENT
+    # =====================================================
+
+    def _evaluate_risk(
+        self,
+        compliance_score: float,
+        error_count: int
+    ) -> str:
+
+        if (
+            compliance_score >= 90.0
+            and error_count <= 1
+        ):
+
             return "Low Risk"
-        elif compliance_score >= 75.0 and error_count <= 3:
+
+
+        elif (
+            compliance_score >= 75.0
+            and error_count <= 3
+        ):
+
             return "Medium Risk"
-        elif compliance_score >= 50.0 or error_count <= 6:
+
+
+        elif (
+            compliance_score >= 50.0
+            or error_count <= 6
+        ):
+
             return "High Risk"
+
+
         else:
+
             return "Critical Risk"
 
-    def _generate_recommendations(self, errors: List[Dict[str, Any]], compliance_checks: List[Dict[str, Any]]) -> List[str]:
-        """
-        Generates action items and engineering recommendations.
-        """
-        recs = []
-        for err in errors:
-            recs.append(f"Resolve the {err['type'].replace('_', ' ')} error in the {err['description'].split(' ')[-1]} room layout: {err['suggestion']}")
-            
-        for chk in compliance_checks:
-            if chk["status"] == "FAIL":
-                recs.append(f"Fix compliance violation for '{chk['name']}': {chk['suggestion']}")
-                
-        # Generic recommendation if everything passed
-        if not recs:
-            recs.append("The architectural blueprint is compliant with standard residential building codes. Review local zoning rules before finalizing structure plans.")
-            
-        return recs
+
+    # =====================================================
+    # RECOMMENDATIONS
+    # =====================================================
+
+    def _generate_recommendations(
+        self,
+        errors: List[Dict[str, Any]],
+        compliance_checks: List[Dict[str, Any]]
+    ) -> List[str]:
+
+        recommendations = []
+
+
+        # -------------------------------------------------
+        # Error recommendations
+        # -------------------------------------------------
+
+        for error in errors:
+
+            suggestion = error.get(
+                "suggestion"
+            )
+
+            if suggestion:
+
+                recommendations.append(
+                    suggestion
+                )
+
+
+        # -------------------------------------------------
+        # Compliance recommendations
+        # -------------------------------------------------
+
+        for check in compliance_checks:
+
+            if check.get("status") == "REVIEW":
+
+                suggestion = check.get(
+                    "suggestion"
+                )
+
+                if suggestion:
+
+                    recommendations.append(
+                        suggestion
+                    )
+
+
+        # -------------------------------------------------
+        # No issues
+        # -------------------------------------------------
+
+        if not recommendations:
+
+            recommendations.append(
+
+                "No automatic issues were detected. "
+                "Review the blueprint manually before "
+                "construction approval."
+
+            )
+
+
+        # Remove duplicates
+
+        recommendations = list(
+            dict.fromkeys(
+                recommendations
+            )
+        )
+
+
+        return recommendations
