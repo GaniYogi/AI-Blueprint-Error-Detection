@@ -1,8 +1,77 @@
-import React from 'react';
-import { Link } from 'react-router-dom';
-import { Layers, ShieldCheck, FileSearch, AlertTriangle, ChevronRight, Scale } from 'lucide-react';
+import React, { useState } from 'react';
+import { useNavigate, Link } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
+import { 
+  Layers, 
+  ShieldCheck, 
+  FileSearch, 
+  AlertTriangle, 
+  ChevronRight, 
+  Scale, 
+  X, 
+  Lock, 
+  Mail, 
+  User as UserIcon, 
+  Zap, 
+  AlertCircle,
+  RefreshCw
+} from 'lucide-react';
 
 export const LandingPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { login, register, isAuthenticated } = useAuth();
+
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  
+  // Form states
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const openModal = (mode: 'signin' | 'signup') => {
+    setAuthMode(mode);
+    setError(null);
+    setShowAuthModal(true);
+  };
+
+  const handleFillDemo = () => {
+    setEmail('architect@blueprint.ai');
+    setPassword('blueprint_default_pass_2026');
+    setFullName('Architect User');
+    setError(null);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+
+    try {
+      if (authMode === 'signin') {
+        await login(email, password);
+      } else {
+        await register(email, password, fullName || 'New User');
+      }
+      setShowAuthModal(false);
+      navigate('/dashboard');
+    } catch (err: any) {
+      console.error('Auth error:', err);
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') {
+        setError(detail);
+      } else if (Array.isArray(detail)) {
+        setError(detail.map((d: any) => d.msg).join(', '));
+      } else {
+        setError('Authentication failed. Please verify email and password.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-primary-950 text-primary-900 dark:text-primary-100 transition-colors duration-300">
       {/* Header */}
@@ -17,12 +86,29 @@ export const LandingPage: React.FC = () => {
             </span>
           </div>
           <div className="flex items-center space-x-4">
-            <Link to="/dashboard" className="px-4 py-2 text-sm font-semibold text-primary-600 dark:text-primary-300 hover:text-indigo-600">
-              Sign In
-            </Link>
-            <Link to="/dashboard" className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all shadow-md shadow-indigo-600/20">
-              Get Started
-            </Link>
+            {isAuthenticated ? (
+              <Link 
+                to="/dashboard" 
+                className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all shadow-md shadow-indigo-600/20"
+              >
+                Go to Workspace
+              </Link>
+            ) : (
+              <>
+                <button 
+                  onClick={() => openModal('signin')} 
+                  className="px-4 py-2 text-sm font-semibold text-primary-600 dark:text-primary-300 hover:text-indigo-600 transition-colors"
+                >
+                  Sign In
+                </button>
+                <button 
+                  onClick={() => openModal('signup')} 
+                  className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all shadow-md shadow-indigo-600/20"
+                >
+                  Get Started
+                </button>
+              </>
+            )}
           </div>
         </div>
       </header>
@@ -45,10 +131,13 @@ export const LandingPage: React.FC = () => {
               An AI-powered computer vision platform that automatically audits architectural blueprints, extracts annotations via OCR, identifies drawing violations, and runs residential building code compliance checks.
             </p>
             <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-4">
-              <Link to="/dashboard" className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg shadow-indigo-600/30 group">
+              <button 
+                onClick={() => openModal('signin')}
+                className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-lg shadow-indigo-600/30 group"
+              >
                 Start Free Analysis
                 <ChevronRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
-              </Link>
+              </button>
               <a href="#features" className="inline-flex items-center justify-center px-6 py-3 text-base font-semibold border border-primary-200 dark:border-primary-800 hover:bg-primary-100 dark:hover:bg-primary-900/40 rounded-xl transition-colors">
                 Explore Features
               </a>
@@ -166,6 +255,150 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
       </footer>
+
+      {/* Authentication Modal */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="relative w-full max-w-md bg-white dark:bg-primary-900 rounded-2xl border border-primary-200 dark:border-primary-800 shadow-2xl overflow-hidden p-6 sm:p-8 space-y-6 text-left">
+            
+            {/* Close Button */}
+            <button 
+              onClick={() => setShowAuthModal(false)}
+              className="absolute top-4 right-4 p-2 text-primary-400 hover:text-primary-600 dark:hover:text-primary-200 rounded-lg hover:bg-primary-100 dark:hover:bg-primary-800 transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+
+            {/* Modal Header */}
+            <div className="space-y-1">
+              <div className="flex items-center space-x-2">
+                <div className="p-1.5 bg-indigo-600 rounded-md text-white">
+                  <Layers className="h-5 w-5" />
+                </div>
+                <span className="font-extrabold text-lg tracking-tight bg-gradient-to-r from-indigo-500 to-indigo-600 bg-clip-text text-transparent">
+                  BlueprintAI
+                </span>
+              </div>
+              <h3 className="text-2xl font-extrabold tracking-tight pt-2">
+                {authMode === 'signin' ? 'Sign In to Workspace' : 'Create Architect Account'}
+              </h3>
+              <p className="text-xs text-primary-500">
+                {authMode === 'signin' ? 'Enter your credentials to access saved blueprints' : 'Register to upload, analyze, and manage blueprint diagnostics'}
+              </p>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex bg-primary-100 dark:bg-primary-950 p-1 rounded-xl text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => { setAuthMode('signin'); setError(null); }}
+                className={`flex-1 py-2 rounded-lg transition-all ${
+                  authMode === 'signin' 
+                    ? 'bg-white dark:bg-primary-800 text-indigo-600 dark:text-white shadow-sm' 
+                    : 'text-primary-500 hover:text-primary-900 dark:hover:text-primary-100'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => { setAuthMode('signup'); setError(null); }}
+                className={`flex-1 py-2 rounded-lg transition-all ${
+                  authMode === 'signup' 
+                    ? 'bg-white dark:bg-primary-800 text-indigo-600 dark:text-white shadow-sm' 
+                    : 'text-primary-500 hover:text-primary-900 dark:hover:text-primary-100'
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
+
+            {/* Demo Credentials Quick Fill Button */}
+            <button
+              type="button"
+              onClick={handleFillDemo}
+              className="w-full py-2 px-3 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/80 rounded-xl text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 flex items-center justify-center space-x-1.5 transition-colors"
+            >
+              <Zap className="h-4 w-4 text-indigo-500 shrink-0" />
+              <span>Auto-Fill Demo Credentials (architect@blueprint.ai)</span>
+            </button>
+
+            {/* Error Display */}
+            {error && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 rounded-xl flex items-center space-x-2 text-rose-600 dark:text-rose-400 text-xs">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            {/* Form */}
+            <form onSubmit={handleSubmit} className="space-y-4">
+              {authMode === 'signup' && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-primary-700 dark:text-primary-300">Full Name</label>
+                  <div className="relative">
+                    <UserIcon className="absolute left-3 top-3 h-4 w-4 text-primary-400" />
+                    <input
+                      type="text"
+                      required
+                      placeholder="Jane Architect"
+                      value={fullName}
+                      onChange={(e) => setFullName(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2.5 bg-primary-50 dark:bg-primary-950 border border-primary-200 dark:border-primary-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-primary-700 dark:text-primary-300">Email Address</label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-3 h-4 w-4 text-primary-400" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="architect@blueprint.ai"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 bg-primary-50 dark:bg-primary-950 border border-primary-200 dark:border-primary-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-primary-700 dark:text-primary-300">Password</label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3 h-4 w-4 text-primary-400" />
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2.5 bg-primary-50 dark:bg-primary-950 border border-primary-200 dark:border-primary-800 rounded-xl text-xs font-medium focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/25 flex items-center justify-center space-x-2 transition-all disabled:opacity-50 mt-2"
+              >
+                {submitting ? (
+                  <>
+                    <RefreshCw className="h-4 w-4 animate-spin" />
+                    <span>Processing...</span>
+                  </>
+                ) : (
+                  <span>{authMode === 'signin' ? 'Sign In to Workspace' : 'Create & Launch Account'}</span>
+                )}
+              </button>
+            </form>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 };

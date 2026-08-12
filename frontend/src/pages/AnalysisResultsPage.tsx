@@ -38,13 +38,13 @@ export const AnalysisResultsPage: React.FC = () => {
   const [isPanning, setIsPanning] = useState(false);
   const panStart = useRef({ x: 0, y: 0 });
 
-  const fetchBlueprint = async (isPoll = false) => {
+  const fetchBlueprint = async () => {
     try {
       const data = await blueprintService.get(blueprintId);
       setBlueprint(data);
       if (data.status === 'pending' || data.status === 'processing') {
         // Continue polling
-        setTimeout(() => fetchBlueprint(true), 3000);
+        setTimeout(() => fetchBlueprint(), 3000);
       } else {
         // Stop loading even when the completed result came from polling.
         setLoading(false);

@@ -6,10 +6,20 @@ const api = axios.create({
   baseURL: API_BASE_URL,
 });
 
-// No auth token — backend auto-uses default user when no token is provided.
+// Request interceptor to attach bearer token automatically
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export const authService = {
-  login: async (formData: FormData) => {
+  login: async (email: string, password: string) => {
+    const formData = new FormData();
+    formData.append('username', email);
+    formData.append('password', password);
     const response = await api.post('/auth/login', formData, {
       headers: {
         'Content-Type': 'multipart/form-data',
@@ -17,7 +27,7 @@ export const authService = {
     });
     return response.data;
   },
-  register: async (userData: any) => {
+  register: async (userData: { email: string; password: string; full_name: string }) => {
     const response = await api.post('/auth/register', userData);
     return response.data;
   },

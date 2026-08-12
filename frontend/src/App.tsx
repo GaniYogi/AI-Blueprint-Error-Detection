@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Link, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { LandingPage } from './pages/LandingPage';
 import { Dashboard } from './pages/Dashboard';
@@ -15,7 +15,8 @@ import {
   Moon, 
   Menu, 
   X,
-  User
+  User,
+  LogOut
 } from 'lucide-react';
 
 // Theme toggler logic
@@ -68,8 +69,9 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 // Layout with Sidebar and Header
 const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const navigation = [
@@ -78,7 +80,10 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     { name: 'Compliance Reports', href: '/reports', icon: FileText },
   ];
 
-  // No logout handler needed
+  const handleSignOut = () => {
+    logout();
+    navigate('/');
+  };
 
   const getPageTitle = () => {
     const item = navigation.find(n => n.href === location.pathname);
@@ -147,19 +152,27 @@ const MainLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         {/* Footer profile & logout */}
         <div className="p-4 border-t border-primary-100 dark:border-primary-800 space-y-2.5">
           {user && (
-            <div className="flex items-center space-x-3 px-2 py-1.5 rounded-lg">
-              <div className="p-2 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg">
-                <User className="h-4.5 w-4.5" />
+            <div className="flex items-center justify-between px-2 py-1.5 rounded-lg bg-primary-50 dark:bg-primary-950/50">
+              <div className="flex items-center space-x-2.5 min-w-0 flex-1">
+                <div className="p-1.5 bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded-lg shrink-0">
+                  <User className="h-4 w-4" />
+                </div>
+                <div className="text-left min-w-0 flex-1">
+                  <p className="text-xs font-bold truncate text-primary-950 dark:text-primary-100 leading-tight">
+                    {user.full_name || 'Architect User'}
+                  </p>
+                  <p className="text-[10px] truncate text-primary-400 leading-none mt-0.5">{user.email}</p>
+                </div>
               </div>
-              <div className="text-left min-w-0 flex-1">
-                <p className="text-xs font-bold truncate text-primary-950 dark:text-primary-100 leading-tight">
-                  {user.full_name || 'Architect User'}
-                </p>
-                <p className="text-[10px] truncate text-primary-400 leading-none mt-0.5">{user.email}</p>
-              </div>
+              <button
+                onClick={handleSignOut}
+                className="p-1.5 text-primary-400 hover:text-rose-500 hover:bg-rose-500/10 rounded-lg transition-colors ml-1 shrink-0"
+                title="Sign Out / Switch Account"
+              >
+                <LogOut className="h-4 w-4" />
+              </button>
             </div>
           )}
-          {/* Sign Out button removed */}
         </div>
       </aside>
 
