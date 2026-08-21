@@ -76,3 +76,9 @@ Thumbs.db
 *.log
 runs/
 dataset/
+
+dataset_clean/
+dataset_final/
+dataset_v2/
+dataset_v3/
+training_status.txt

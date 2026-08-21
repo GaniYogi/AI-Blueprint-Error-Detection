@@ -48,9 +48,10 @@ def run_verification():
     # 3. Test Blueprint Analysis Engine
     print("\n[3/4] Testing Blueprint Analysis Engine (Mock/Real pipeline)...")
     temp_blueprint_path = os.path.join(settings.UPLOAD_DIR, "test_blueprint.png")
-    # Write a small dummy file to mimic blueprint upload
-    with open(temp_blueprint_path, "wb") as f:
-        f.write(b"PNG DUMMY DATA")
+    # Write a valid small image file to mimic blueprint upload
+    from PIL import Image as PILImage
+    dummy_img = PILImage.new("RGB", (400, 300), color=(255, 255, 255))
+    dummy_img.save(temp_blueprint_path, format="PNG")
         
     try:
       engine_runner = BlueprintAnalysisEngine(

@@ -82,34 +82,25 @@ class BlueprintAnalysisEngine:
 
             try:
 
-                weights_path = os.path.join(
-                    models_dir,
-                    "best.pt"
-                )
+                candidate_paths = [
+                    os.path.join(models_dir, "best.pt"),
+                    os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "models", "best.pt"),
+                    os.path.join(os.path.dirname(os.path.dirname(__file__)), "models", "best.pt"),
+                ]
 
-                if os.path.exists(weights_path):
+                weights_path = None
+                for path in candidate_paths:
+                    if os.path.exists(path):
+                        weights_path = path
+                        break
 
-                    print(
-                        f"Loading YOLO model: {weights_path}"
-                    )
-
-                    self.yolo_model = YOLO(
-                        weights_path
-                    )
-
-                    print(
-                        "YOLO model loaded successfully."
-                    )
-
-                    print(
-                        f"YOLO classes: {self.yolo_model.names}"
-                    )
-
+                if weights_path:
+                    print(f"Loading YOLO model: {weights_path}")
+                    self.yolo_model = YOLO(weights_path)
+                    print("YOLO model loaded successfully.")
+                    print(f"YOLO classes: {self.yolo_model.names}")
                 else:
-
-                    print(
-                        f"YOLO weights not found: {weights_path}"
-                    )
+                    print(f"YOLO weights not found in candidates: {candidate_paths}")
 
             except Exception as e:
 
@@ -516,7 +507,8 @@ class BlueprintAnalysisEngine:
             if lines is not None:
                 merged: List[Tuple] = []
                 for line in lines:
-                    x1, y1, x2, y2 = line[0]
+                    pts = line[0] if (hasattr(line[0], '__len__') and len(line[0]) == 4) else line
+                    x1, y1, x2, y2 = pts
                     length = ((x2-x1)**2 + (y2-y1)**2) ** 0.5
                     if length < min(w, h) * 0.03:
                         continue
@@ -688,7 +680,8 @@ class BlueprintAnalysisEngine:
 
             merged: List[Tuple] = []
             for line in lines:
-                x1, y1, x2, y2 = line[0]
+                pts = line[0] if (hasattr(line[0], '__len__') and len(line[0]) == 4) else line
+                x1, y1, x2, y2 = pts
                 length = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
                 if length < min(w, h) * 0.03:
                     continue
@@ -750,10 +743,13 @@ class BlueprintAnalysisEngine:
 
 
         try:
+            if HAS_CV2 and os.path.exists(file_path):
+                img_gray = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+                target_input = img_gray if img_gray is not None else file_path
+            else:
+                target_input = file_path
 
-            results = self.reader.readtext(
-                file_path
-            )
+            results = self.reader.readtext(target_input)
 
             ocr_texts = []
 
@@ -772,6 +768,16 @@ class BlueprintAnalysisEngine:
 
 
                 bbox, text, conf = result
+
+                # --- Filter 1: confidence threshold ---
+                confidence = float(conf)
+                if confidence < 0.50:
+                    continue
+
+                # --- Filter 2: strip and skip empty text ---
+                text = str(text).strip()
+                if not text:
+                    continue
 
 
                 xs = [
@@ -806,7 +812,7 @@ class BlueprintAnalysisEngine:
                         f"ocr_{idx + 1}",
 
                     "text":
-                        str(text),
+                        text,
 
                     "bbox": [
 
@@ -822,7 +828,7 @@ class BlueprintAnalysisEngine:
 
                     "confidence":
                         round(
-                            float(conf),
+                            confidence,
                             2
                         )
 
@@ -844,6 +850,64 @@ class BlueprintAnalysisEngine:
             )
 
             return []
+
+
+    # =====================================================
+    # SPATIAL HELPER
+    # =====================================================
+
+    @staticmethod
+    def _is_near_wall(
+        obj_bbox: List,
+        wall_bboxes: List[List],
+        tolerance: float
+    ) -> bool:
+        """
+        Return True if obj_bbox is within `tolerance` pixels of ANY
+        wall bbox, or overlaps one.
+
+        Geometry (all bboxes are [x, y, w, h]):
+
+          Rect A: (ox, oy) → (ox+ow, oy+oh)
+          Rect B: (wx, wy) → (wx+ww, wy+wh)
+
+          Horizontal gap:
+            gap_x = max(0, max(ox, wx) − min(ox+ow, wx+ww))
+          Vertical gap:
+            gap_y = max(0, max(oy, wy) − min(oy+oh, wy+wh))
+
+          When the rects overlap, gap_x == 0 AND gap_y == 0.
+          Euclidean min-boundary-distance = sqrt(gap_x² + gap_y²).
+
+        A door/window is considered "near" a wall if this distance
+        is ≤ tolerance for at least one wall segment.
+        """
+        ox, oy, ow, oh = [
+            float(v) for v in obj_bbox
+        ]
+
+        for wb in wall_bboxes:
+            wx, wy, ww, wh = [float(v) for v in wb]
+
+            # Horizontal gap between the two axis-aligned rects
+            gap_x = max(
+                0.0,
+                max(ox, wx) - min(ox + ow, wx + ww)
+            )
+
+            # Vertical gap between the two axis-aligned rects
+            gap_y = max(
+                0.0,
+                max(oy, wy) - min(oy + oh, wy + wh)
+            )
+
+            # Euclidean min-distance between rect boundaries
+            dist = (gap_x ** 2 + gap_y ** 2) ** 0.5
+
+            if dist <= tolerance:
+                return True
+
+        return False
 
 
     # =====================================================
@@ -976,6 +1040,206 @@ class BlueprintAnalysisEngine:
                             "Ensure wall lines are complete and non-overlapping."
                         )
                     })
+
+        # -------------------------------------------------
+        # Floating door / window detection
+        #
+        # A door or window is considered "floating" when it
+        # is clearly far from every detected wall segment.
+        # This check only runs when YOLO has produced actual
+        # wall bboxes; if no walls were found (OpenCV room-
+        # only fallback) there is nothing to compare against.
+        #
+        # Tolerance = 1.5 × the object's own larger dimension.
+        # This gives generous room for:
+        #   • doors that sit in a wall opening (gap up to door-
+        #     width away from each flanking wall segment)
+        #   • slight bbox registration errors between YOLO
+        #     detections of adjacent elements
+        # Only clearly isolated elements (distance >> their
+        # own size) are flagged.
+        # -------------------------------------------------
+
+        if walls:
+
+            wall_bboxes = [w["bbox"] for w in walls]
+
+            # -- Floating doors --
+            for door in doors:
+                d_bbox = door["bbox"]
+
+                # Tolerance proportional to door size
+                tol = max(
+                    float(d_bbox[2]),
+                    float(d_bbox[3])
+                ) * 1.5
+
+                if not self._is_near_wall(d_bbox, wall_bboxes, tol):
+                    errors.append({
+                        "id": f"err_floating_{door['id']}",
+                        "type": "floating_door",
+                        "description": (
+                            f"Door '{door['id']}' appears to be far from "
+                            "all detected wall segments and may be "
+                            "misplaced or a false positive."
+                        ),
+                        "bbox": d_bbox,
+                        "severity": "Medium",
+                        "suggestion": (
+                            "Verify this door is positioned at a wall "
+                            "opening. If correct, the wall detection may "
+                            "be incomplete — try a higher-resolution image."
+                        )
+                    })
+
+            # -- Floating windows --
+            for window in windows:
+                w_bbox = window["bbox"]
+
+                # Tolerance proportional to window size
+                tol = max(
+                    float(w_bbox[2]),
+                    float(w_bbox[3])
+                ) * 1.5
+
+                if not self._is_near_wall(w_bbox, wall_bboxes, tol):
+                    errors.append({
+                        "id": f"err_floating_{window['id']}",
+                        "type": "floating_window",
+                        "description": (
+                            f"Window '{window['id']}' appears to be far "
+                            "from all detected wall segments and may be "
+                            "misplaced or a false positive."
+                        ),
+                        "bbox": w_bbox,
+                        "severity": "Medium",
+                        "suggestion": (
+                            "Verify this window is positioned within a "
+                            "wall. If correct, the wall detection may be "
+                            "incomplete — try a higher-resolution image."
+                        )
+                    })
+
+        # -------------------------------------------------
+        # Room-label OCR validation
+        #
+        # Only runs when the detection pipeline found at
+        # least one room (YOLO or OCR enrichment).  If rooms
+        # exist but no recognisable room-label keyword appears
+        # in the (already confidence-filtered) OCR results,
+        # we raise a REVIEW-level warning.
+        #
+        # Matching strategy:
+        #   1. Normalise each OCR text to lowercase and strip
+        #      punctuation/extra whitespace.
+        #   2. Tokenise on whitespace so that single-word
+        #      labels ("hall", "kitchen") are only matched
+        #      against whole tokens — avoids matching "store"
+        #      inside "restore" etc.
+        #   3. For multi-word labels ("living room",
+        #      "master bedroom"), check that the normalised
+        #      text CONTAINS the full phrase as a substring
+        #      of the joined token string.
+        #
+        # Rule: skip entirely when no rooms detected
+        #       (insufficient evidence to flag anything).
+        # -------------------------------------------------
+
+        if rooms:
+
+            # Vocabulary: recognisable room-label phrases.
+            # Order matters for multi-word entries: put them
+            # before their component words so the phrase
+            # match fires first (no overlap issues with the
+            # single-word fallback tokens).
+            ROOM_LABEL_VOCAB = [
+                "master bedroom",
+                "living room",
+                "dining room",
+                "bed room",
+                "bedroom",
+                "kitchen",
+                "dining",
+                "bathroom",
+                "toilet",
+                "washroom",
+                "hall",
+                "office",
+                "store",
+                "garage",
+            ]
+
+            import re as _re
+
+            def _normalise(raw: str) -> str:
+                """
+                Lowercase, collapse whitespace, strip leading/
+                trailing punctuation so OCR noise is reduced.
+                e.g. "LIVING ROOM." -> "living room"
+                     "BED- ROOM"   -> "bed room"
+                """
+                text = raw.lower()
+                # Replace hyphens/dashes used as word-joiners
+                # with a space so "BED-ROOM" -> "bed room"
+                text = text.replace("-", " ")
+                # Remove non-alpha-space characters
+                text = _re.sub(r"[^a-z ]", " ", text)
+                # Collapse multiple spaces
+                text = _re.sub(r"\s+", " ", text).strip()
+                return text
+
+            def _ocr_contains_room_label(
+                ocr_list: List[Dict[str, Any]],
+                vocab: List[str]
+            ) -> bool:
+                """
+                Return True if any single OCR result, after
+                normalisation, contains one of the vocabulary
+                phrases (whole-word for single-token labels,
+                substring for multi-token phrases).
+                """
+                for entry in ocr_list:
+                    norm = _normalise(entry.get("text", ""))
+                    if not norm:
+                        continue
+                    tokens = norm.split()
+                    token_set = set(tokens)
+                    for label in vocab:
+                        label_tokens = label.split()
+                        if len(label_tokens) == 1:
+                            # Single-word: must be an exact token
+                            if label_tokens[0] in token_set:
+                                return True
+                        else:
+                            # Multi-word: substring of joined tokens
+                            if label in norm:
+                                return True
+                return False
+
+            has_room_label = _ocr_contains_room_label(
+                ocr_results,
+                ROOM_LABEL_VOCAB
+            )
+
+            if not has_room_label:
+                errors.append({
+                    "id": "err_missing_room_labels",
+                    "type": "missing_room_labels",
+                    "description": (
+                        f"{len(rooms)} room(s) detected but no "
+                        "recognisable room-label text was found in the "
+                        "OCR output. Room names (e.g. BEDROOM, KITCHEN, "
+                        "LIVING ROOM) may be absent or illegible."
+                    ),
+                    "bbox": None,
+                    "severity": "Low",
+                    "suggestion": (
+                        "Ensure each room is clearly labelled on the "
+                        "blueprint. Labels should be printed in a "
+                        "readable font at sufficient size for OCR to "
+                        "detect them reliably."
+                    )
+                })
 
         return errors
 
@@ -1190,11 +1454,161 @@ class BlueprintAnalysisEngine:
 
 
         # -------------------------------------------------
+        # window_ventilation_ratio  (from rules_dict)
+        #
+        # On a 2D plan at uniform scale, the ratio of
+        # pixel areas equals the ratio of real-world areas,
+        # so this check is scale-invariant and does not
+        # require a pixel-to-foot conversion.
+        #
+        # Rules that CANNOT be evaluated with current data:
+        #   min_bedroom_area   — no pixel-to-ft scale
+        #   min_door_width     — no pixel-to-ft scale
+        #   min_corridor_width — no corridor class + no scale
+        #   accessibility_compliance — requires bathroom
+        #                         detection & door-swing data
+        # -------------------------------------------------
+
+        ventilation_threshold = float(
+            rules.get("window_ventilation_ratio", 8.0)
+        )
+
+        window_objs = [
+            o for o in detected_objects
+            if o["label"].lower() == "window"
+        ]
+
+        room_objs = [
+            o for o in detected_objects
+            if o["label"].lower() == "room"
+        ]
+
+        if window_objs and room_objs:
+
+            total_window_px = sum(
+                float(o["bbox"][2]) * float(o["bbox"][3])
+                for o in window_objs
+            )
+
+            total_room_px = sum(
+                float(o["bbox"][2]) * float(o["bbox"][3])
+                for o in room_objs
+            )
+
+            if total_room_px > 0:
+
+                actual_ratio = (total_window_px / total_room_px) * 100.0
+
+                ventilation_status = (
+                    "PASS"
+                    if actual_ratio >= ventilation_threshold
+                    else "FAIL"
+                )
+
+                checks.append({
+                    "rule_key": "window_ventilation_ratio",
+                    "name": "Window Ventilation Ratio",
+                    "category": "ventilation",
+                    "description": (
+                        "Total window bbox area as a percentage of "
+                        "total room bbox area. Pixel ratio is "
+                        "scale-invariant on a 2D floor plan."
+                    ),
+                    "threshold": (
+                        f">= {ventilation_threshold:.1f}%"
+                    ),
+                    "actual": (
+                        f"{actual_ratio:.1f}% "
+                        f"({len(window_objs)} window(s), "
+                        f"{len(room_objs)} room(s))"
+                    ),
+                    "status": ventilation_status,
+                    "severity": "Medium",
+                    "suggestion": (
+                        "Add or enlarge windows to improve natural "
+                        "light and ventilation if ratio is below "
+                        f"{ventilation_threshold:.1f}%."
+                    )
+                })
+
+            else:
+
+                checks.append({
+                    "rule_key": "window_ventilation_ratio",
+                    "name": "Window Ventilation Ratio",
+                    "category": "ventilation",
+                    "description": (
+                        "Could not compute ratio: room area is zero."
+                    ),
+                    "threshold": (
+                        f">= {ventilation_threshold:.1f}%"
+                    ),
+                    "actual": "Room area is zero — cannot compute ratio.",
+                    "status": "REVIEW",
+                    "severity": "Medium",
+                    "suggestion": (
+                        "Verify room detection results manually."
+                    )
+                })
+
+        else:
+
+            missing = []
+            if not window_objs:
+                missing.append("windows")
+            if not room_objs:
+                missing.append("rooms")
+
+            checks.append({
+                "rule_key": "window_ventilation_ratio",
+                "name": "Window Ventilation Ratio",
+                "category": "ventilation",
+                "description": (
+                    "Could not compute ventilation ratio: "
+                    f"{' and '.join(missing)} not detected."
+                ),
+                "threshold": (
+                    f">= {ventilation_threshold:.1f}%"
+                ),
+                "actual": (
+                    f"Insufficient data "
+                    f"({len(window_objs)} window(s), "
+                    f"{len(room_objs)} room(s) detected)"
+                ),
+                "status": "REVIEW",
+                "severity": "Medium",
+                "suggestion": (
+                    "Ensure windows and rooms are clearly visible "
+                    "in the blueprint for an accurate ratio check."
+                )
+            })
+
+
+        # -------------------------------------------------
         # Calculate score
+        #
+        # Step 1 — error deductions (unchanged):
+        #   Critical → -25   High → -15
+        #   Medium   → -10   Low  → -5
+        #
+        # Step 2 — compliance-check deductions:
+        #   REVIEW → -3   FAIL → -7   PASS → 0
+        #
+        #   To avoid double-penalising, checks whose
+        #   underlying issue is ALREADY represented by an
+        #   error in the errors list are skipped in Step 2.
+        #
+        #   Mapping of check rule_key → error type it overlaps:
+        #     wall_detection     → missing_wall_detection
+        #     door_detection     → missing_door_detection
+        #     window_detection   → missing_window_detection
+        #   (ocr_detection and window_ventilation_ratio have
+        #    no matching error type, so they are always scored)
         # -------------------------------------------------
 
         score = 100.0
 
+        # ------ Step 1: error deductions ------
 
         for error in errors:
 
@@ -1203,26 +1617,56 @@ class BlueprintAnalysisEngine:
                 "Low"
             )
 
-
             if severity == "Critical":
-
                 score -= 25.0
 
-
             elif severity == "High":
-
                 score -= 15.0
 
-
             elif severity == "Medium":
-
                 score -= 10.0
 
-
             else:
-
                 score -= 5.0
 
+        # ------ Step 2: compliance-check deductions ------
+        #
+        # Only checks NOT already penalised via an error
+        # receive an additional small deduction.
+
+        _COVERED_BY_ERROR = {
+            "wall_detection":   "missing_wall_detection",
+            "door_detection":   "missing_door_detection",
+            "window_detection": "missing_window_detection",
+        }
+
+        _error_types_present = {
+            e.get("type") for e in errors
+        }
+
+        for check in checks:
+
+            status   = check.get("status", "PASS")
+            rule_key = check.get("rule_key", "")
+
+            # Skip PASS checks — no deduction
+            if status == "PASS":
+                continue
+
+            # Skip if this check's issue is already in errors
+            overlapping_error = _COVERED_BY_ERROR.get(rule_key)
+            if (
+                overlapping_error
+                and overlapping_error in _error_types_present
+            ):
+                continue
+
+            # Apply deduction
+            if status == "FAIL":
+                score -= 7.0
+
+            elif status == "REVIEW":
+                score -= 3.0
 
         score = max(
             0.0,
